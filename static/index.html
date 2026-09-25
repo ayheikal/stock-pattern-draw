@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pattern Charts</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">📐 Pattern Charts</div>
+    <form id="search" class="search" autocomplete="off">
+      <input id="symbol" name="symbol" list="examples" placeholder="Symbol or index, e.g. AAPL, ^GSPC, COMI.CA, EGX33" required />
+      <datalist id="examples">
+        <option value="AAPL">Apple</option>
+        <option value="MSFT">Microsoft</option>
+        <option value="TSLA">Tesla</option>
+        <option value="^GSPC">S&amp;P 500</option>
+        <option value="^NDX">Nasdaq 100</option>
+        <option value="^DJI">Dow Jones</option>
+        <option value="EGX30">EGX 30 Index</option>
+        <option value="EGX33">EGX 33 Shariah Index</option>
+        <option value="EGX70">EGX 70 EWI Index</option>
+        <option value="COMI.CA">CIB Egypt</option>
+        <option value="TMGH.CA">Talaat Moustafa</option>
+        <option value="EAST.CA">Eastern Company</option>
+        <option value="ETEL.CA">Telecom Egypt</option>
+        <option value="BTC-USD">Bitcoin</option>
+        <option value="GC=F">Gold futures</option>
+      </datalist>
+      <select id="interval" title="Bar interval">
+        <option value="1h">1 hour</option>
+        <option value="1d" selected>1 day</option>
+        <option value="1wk">1 week</option>
+        <option value="1mo">1 month</option>
+      </select>
+      <select id="period" title="History">
+        <option value="3mo">3 months</option>
+        <option value="6mo">6 months</option>
+        <option value="1y" selected>1 year</option>
+        <option value="2y">2 years</option>
+        <option value="5y">5 years</option>
+        <option value="10y">10 years</option>
+        <option value="max">Max</option>
+      </select>
+      <button type="submit">Analyze</button>
+    </form>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <section class="filters">
+    <label><input type="checkbox" data-cat="reversal" checked /> <span class="dot rev"></span>Reversal</label>
+    <label><input type="checkbox" data-cat="continuation" checked /> <span class="dot cont"></span>Continuation</label>
+    <label><input type="checkbox" data-cat="trend" checked /> <span class="dot trend"></span>Trend lines</label>
+    <label><input type="checkbox" data-cat="levels" checked /> <span class="dot lvl"></span>Support / Resistance</label>
+    <label><input type="checkbox" data-cat="candle" checked /> <span class="dot cndl"></span>Candlesticks</label>
+    <label class="conf">Min confidence <input id="minConf" type="range" min="50" max="95" step="5" value="55" /> <output id="minConfOut">55%</output></label>
+  </section>
+
+  <main class="layout">
+    <section class="chart-panel">
+      <div class="info">
+        <div>
+          <h1 id="title">Enter a symbol to begin</h1>
+          <div id="subtitle" class="muted"></div>
+        </div>
+        <div id="legend" class="legend muted"></div>
+      </div>
+      <div id="chart" class="chart">
+        <div id="status" class="status">Type a stock, index or asset code above: <b>AAPL</b>, <b>^GSPC</b>, <b>COMI.CA</b>, <b>EGX33</b>, <b>BTC-USD</b>.</div>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <h2>Detected patterns <span id="count" class="badge">0</span></h2>
+      <ul id="patternList" class="pattern-list"></ul>
+      <h2>Key levels</h2>
+      <ul id="levelList" class="level-list"></ul>
+    </aside>
+  </main>
+
+  <footer class="disclaimer">
+    Patterns are detected automatically using heuristic rules and may be imprecise. Data: Yahoo Finance, with TradingView for EGX indices (may be delayed).
+    For education only — not financial advice.
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
