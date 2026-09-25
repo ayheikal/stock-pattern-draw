@@ -200,6 +200,18 @@ body {
 .cases li { padding: 4px 0 4px 10px; border-left: 3px solid; margin-bottom: 4px; }
 .cases .bull { border-color: var(--bull); }
 .cases .bear { border-color: var(--bear); }
+.plans { display: grid; gap: 8px; margin: 10px 0; }
+.plan { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.plan-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px; }
+.plan-title .rr { font-weight: 500; color: var(--muted); white-space: nowrap; }
+.plan-grid { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.plan-grid .k { color: var(--muted); }
+.plan-grid .v { text-align: right; font-weight: 600; }
+.plan-grid .pct { text-align: right; color: var(--muted); font-size: 12px; }
+.plan-grid .tgt { color: var(--bull); }
+.plan-grid .stp { color: var(--bear); }
+.plan .basis, .plan .warn { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.plan .warn { color: var(--resistance); }
 .outlook details { font-size: 13px; margin-top: 6px; }
 .outlook summary { cursor: pointer; color: var(--accent); }
 .drivers { padding-left: 18px; margin: 6px 0 0; }

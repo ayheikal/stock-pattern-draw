@@ -9,6 +9,7 @@ technical-analysis patterns detected and drawn automatically.
 - **Support / Resistance:** horizontal levels clustered from swing points
 - **Candlesticks:** Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Morning/Evening Star, Three White Soldiers / Black Crows
 - **Outlook:** a plain-language expectation for the next period (next week on daily bars, next month on weekly, …): overall bias, the main signal, bullish/bearish scenarios with trigger levels and targets, and an ATR-based typical range
+- **Trade plan:** entry, target and stop-loss with reward/risk. The stop sits just beyond the main pattern's last swing (its invalidation point), else beyond the nearest support/resistance, else 2 × ATR. A neutral outlook gives two conditional breakout/breakdown plans instead. Target and stop are drawn on the chart.
 
 ## Run
 

@@ -168,3 +168,16 @@ def test_outlook_bullish_in_uptrend():
     o = _outlook(make_ohlc([(0, 50.0), (40, 70), (10, 66), (30, 90), (8, 86), (20, 100)]), "1wk")
     assert "bullish" in o["bias"].lower()
     assert "next month" in o["horizon"]
+
+
+def test_outlook_trade_plan_is_consistent():
+    for path, interval in [
+        (LEAD_UP + [(12, 120), (10, 105), (12, 120), (12, 95), (6, 92)], "1d"),
+        ([(0, 50.0), (40, 70), (10, 66), (30, 90), (8, 86), (20, 100)], "1wk"),
+    ]:
+        for plan in _outlook(make_ohlc(path), interval)["plans"]:
+            if plan["side"] == "long":
+                assert plan["stop"] < plan["entry"] < plan["target"]
+            else:
+                assert plan["target"] < plan["entry"] < plan["stop"]
+            assert plan["rr"] > 0

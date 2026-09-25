@@ -44,6 +44,47 @@ def _bias_label(score: float) -> str:
     return "Bearish"
 
 
+def _stop(long: bool, entry: float, pattern: Pattern | None, df: pd.DataFrame, a: float, levels_beyond: list[float]) -> tuple[float, str]:
+    """Stop-loss just beyond the level that invalidates the idea.
+
+    Prefers the main pattern's last swing (e.g. flag low, right shoulder); falls back to the
+    next support/resistance level at least 1 ATR away, then to a 2 x ATR volatility stop.
+    """
+    sgn = 1 if long else -1
+    if pattern is not None and pattern.points and pattern.direction == ("bullish" if long else "bearish"):
+        i0 = int(pattern.points[-1][0])
+        swing = float(df["Low"].iloc[i0:].min()) if long else float(df["High"].iloc[i0:].max())
+        stop = swing - sgn * 0.25 * a
+        if 0.5 * a <= sgn * (entry - stop) <= 4 * a:
+            return stop, f"just {'below' if long else 'above'} the last swing of the {pattern.name}"
+    for lvl in levels_beyond:
+        stop = lvl - sgn * 0.5 * a
+        if a <= sgn * (entry - stop) <= 5 * a:
+            return stop, f"just {'below support' if long else 'above resistance'} at {_fmt(lvl)}"
+    return entry - sgn * 2 * a, "2 × ATR volatility stop"
+
+
+def _plan(long: bool, entry: float, target: float, stop: float, label: str, basis: str, conditional: bool) -> dict:
+    risk = abs(entry - stop)
+    if (target - entry) * (1 if long else -1) <= 0:  # target must lie in the trade's direction
+        target = entry + (2 * risk if long else -2 * risk)
+    reward = abs(target - entry)
+    rr = reward / risk if risk > 0 else 0.0
+    return {
+        "side": "long" if long else "short",
+        "label": label,
+        "conditional": conditional,
+        "entry": round(entry, 4),
+        "target": round(target, 4),
+        "stop": round(max(stop, 0.0), 4),
+        "targetPct": round((target - entry) / entry * 100, 2),
+        "stopPct": round((stop - entry) / entry * 100, 2),
+        "rr": round(rr, 2),
+        "stopBasis": basis,
+        "warning": "Reward/risk is below 1:1, so the setup is unattractive." if rr < 1 else None,
+    }
+
+
 def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level], interval: str) -> dict:
     close_s = df["Close"]
     n, last = len(df), float(close_s.iloc[-1])
@@ -145,8 +186,25 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
         lead = "No active chart pattern, so the prevailing trend and key levels drive the outlook."
     summary = f"{bias} bias. {lead} {trend_note}".strip()
 
+    # --- trade plan: entry, target, stop-loss ---
+    mp = main[1] if main else None
+    plans = []
+    if score >= 0.4:
+        stop, basis = _stop(True, last, mp, df, a, below)
+        plans.append(_plan(True, last, up_target, stop, "Buy (bullish bias)", basis, False))
+    elif score <= -0.4:
+        stop, basis = _stop(False, last, mp, df, a, above)
+        plans.append(_plan(False, last, down_target, stop, "Sell / short (bearish bias)", basis, False))
+    else:
+        # No clear edge: wait for price to leave the range, then trade the break.
+        plans.append(_plan(True, resistance, up_target, resistance - 1.5 * a,
+                           f"Buy only on a close above {_fmt(resistance)}", "1.5 × ATR below the breakout level", True))
+        plans.append(_plan(False, support, down_target, support + 1.5 * a,
+                           f"Sell only on a close below {_fmt(support)}", "1.5 × ATR above the breakdown level", True))
+
     lo, hi = max(0.0, last - spread), last + spread
     return {
+        "plans": plans,
         "bias": bias,
         "score": round(score, 2),
         "horizon": horizon,

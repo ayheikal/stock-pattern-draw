@@ -124,6 +124,13 @@
       }
     }
 
+    // Active trade plan: target and stop-loss lines.
+    const plan = state.data.outlook && state.data.outlook.plans.find((p) => !p.conditional);
+    if (plan) {
+      state.priceLines.push(candles.createPriceLine({ price: plan.target, color: css("--bull"), lineWidth: 2, lineStyle: Dashed, axisLabelVisible: true, title: "Target" }));
+      state.priceLines.push(candles.createPriceLine({ price: plan.stop, color: css("--bear"), lineWidth: 2, lineStyle: Dashed, axisLabelVisible: true, title: "Stop" }));
+    }
+
     if (catEnabled("levels")) {
       for (const lv of state.data.levels) {
         state.priceLines.push(candles.createPriceLine({
@@ -174,6 +181,18 @@
     $("outlookBull").textContent = o.bullCase;
     $("outlookBear").textContent = o.bearCase;
     $("outlookRange").textContent = o.range.text;
+    const pct = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+    $("outlookPlans").innerHTML = o.plans.map((p) => `
+      <div class="plan">
+        <div class="plan-title"><span>${escapeHtml(p.label)}</span><span class="rr">R:R ${p.rr.toFixed(2)}</span></div>
+        <div class="plan-grid">
+          <span class="k">${p.conditional ? "Entry (trigger)" : "Entry (last close)"}</span><span class="v">${fmt(p.entry)}</span><span></span>
+          <span class="k">Target</span><span class="v tgt">${fmt(p.target)}</span><span class="pct">${pct(p.targetPct)}</span>
+          <span class="k">Stop loss</span><span class="v stp">${fmt(p.stop)}</span><span class="pct">${pct(p.stopPct)}</span>
+        </div>
+        <div class="basis">Stop: ${escapeHtml(p.stopBasis)}</div>
+        ${p.warning ? `<div class="warn">⚠ ${escapeHtml(p.warning)}</div>` : ""}
+      </div>`).join("");
     $("outlookDrivers").innerHTML = o.drivers.length
       ? o.drivers.map((d) => `<li class="${d.direction}">${escapeHtml(d.text)}</li>`).join("")
       : `<li>No strong signals.</li>`;
