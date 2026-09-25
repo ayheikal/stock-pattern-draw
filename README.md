@@ -8,6 +8,7 @@ technical-analysis patterns detected and drawn automatically.
 - **Trend:** active up/down trendlines, ascending/descending channels
 - **Support / Resistance:** horizontal levels clustered from swing points
 - **Candlesticks:** Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Morning/Evening Star, Three White Soldiers / Black Crows
+- **Outlook:** a plain-language expectation for the next period (next week on daily bars, next month on weekly, …): overall bias, the main signal, bullish/bearish scenarios with trigger levels and targets, and an ATR-based typical range
 
 ## Run
 
@@ -54,6 +55,7 @@ EGX 33 Shariah starts in 2022.
 app/
   data.py              provider routing (Yahoo → TradingView), aliases, 5-min cache
   tradingview.py       TradingView websocket client (EGX indices)
+  outlook.py           next-period expectation built from patterns, trend, RSI and levels
   pivots.py            ATR + swing-point (zigzag) detection shared by all detectors
   patterns/
     reversal.py        H&S, double/triple tops & bottoms

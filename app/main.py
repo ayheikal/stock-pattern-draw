@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
+from .outlook import build_outlook
 from .patterns import analyze
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -82,6 +83,7 @@ def api_analyze(
         "candles": candles,
         "patterns": out_patterns,
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
+        "outlook": build_outlook(df, patterns, levels, interval),
     }
 
 

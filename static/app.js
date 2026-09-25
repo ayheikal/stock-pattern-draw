@@ -162,6 +162,23 @@
       : `<li class="empty">No clear levels.</li>`;
   }
 
+  function renderOutlook(o) {
+    const box = $("outlook");
+    box.hidden = !o;
+    if (!o) return;
+    const b = $("outlookBias");
+    b.textContent = o.bias;
+    b.className = "bias " + (/bullish/i.test(o.bias) ? "bullish" : /bearish/i.test(o.bias) ? "bearish" : "");
+    $("outlookHorizon").textContent = `Expectation for the ${o.horizon}`;
+    $("outlookSummary").textContent = o.summary;
+    $("outlookBull").textContent = o.bullCase;
+    $("outlookBear").textContent = o.bearCase;
+    $("outlookRange").textContent = o.range.text;
+    $("outlookDrivers").innerHTML = o.drivers.length
+      ? o.drivers.map((d) => `<li class="${d.direction}">${escapeHtml(d.text)}</li>`).join("")
+      : `<li>No strong signals.</li>`;
+  }
+
   function selectPattern(id) {
     state.selected = state.selected === id ? null : id;
     render();
@@ -213,6 +230,7 @@
       els.title.textContent = `${body.name} (${body.symbol})`;
       els.subtitle.textContent = [body.exchange, body.currency, `${cs.length} bars`, `last ${fmt(last.close)}`].filter(Boolean).join(" · ");
       updateLegend(last, prev);
+      renderOutlook(body.outlook);
       render();
       setStatus("");
     } catch (err) {

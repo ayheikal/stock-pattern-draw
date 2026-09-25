@@ -148,3 +148,23 @@ def test_egx_stock_falls_back_to_tradingview():
     from app.data import candidates
 
     assert candidates("COMI.CA") == [("yahoo", "COMI.CA"), ("tv", "EGX:COMI")]
+
+
+def _outlook(df, interval="1d"):
+    from app.outlook import build_outlook
+
+    patterns, levels = analyze(df)
+    return build_outlook(df, patterns, levels, interval)
+
+
+def test_outlook_bearish_after_double_top():
+    o = _outlook(make_ohlc(LEAD_UP + [(12, 120), (10, 105), (12, 120), (12, 95), (6, 92)]))
+    assert "bearish" in o["bias"].lower()
+    assert o["support"] < o["resistance"]
+    assert o["range"]["low"] < o["range"]["high"]
+
+
+def test_outlook_bullish_in_uptrend():
+    o = _outlook(make_ohlc([(0, 50.0), (40, 70), (10, 66), (30, 90), (8, 86), (20, 100)]), "1wk")
+    assert "bullish" in o["bias"].lower()
+    assert "next month" in o["horizon"]
