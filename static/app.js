@@ -84,16 +84,35 @@
     return out.map((p) => ({ time: p.time, value: p.value }));
   }
 
-  function addLine(points, color, width, style) {
+  function addLine(points, color, width, style, extra = {}) {
     const data = cleanLine(points);
     if (data.length < 2) return;
     const s = chart.addLineSeries({
       color, lineWidth: width, lineStyle: style,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       autoscaleInfoProvider: () => null, // overlays should not stretch the price scale
+      ...extra,
     });
     s.setData(data);
     state.overlays.push(s);
+  }
+
+  const NECK_LIVE_BARS = 30; // necklines of patterns this recent are extended to the last bar
+
+  // A pattern's neckline (or cup rim). While it is still relevant it runs to the latest bar
+  // with its price labelled on the axis, like a hand-drawn TradingView line.
+  function addNeckline(p, color, width, live) {
+    let pts = p.neckline;
+    const cs = state.data.candles, lastIdx = cs.length - 1;
+    const [a, b] = [pts[0], pts[pts.length - 1]];
+    if (live && b.index < lastIdx) {
+      const slope = b.index !== a.index ? (b.value - a.value) / (b.index - a.index) : 0;
+      const v = b.value + slope * (lastIdx - b.index);
+      if (v > 0) pts = [...pts, { index: lastIdx, time: cs[lastIdx].time, value: v }];
+    }
+    addLine(pts, color, width, LightweightCharts.LineStyle.Solid, live
+      ? { lastValueVisible: true, title: /Cup/.test(p.name) ? "Rim" : "Neckline" }
+      : {});
   }
 
   // ---------- rendering ----------
@@ -129,9 +148,12 @@
       const c = dim ? color + "55" : color;
       p.lines.forEach((ln, i) => {
         const isTarget = p.target != null && i === p.lines.length - 1;
-        const isNeck = p.category === "reversal" && i === 1;
-        addLine(ln, c, isTarget ? 1 : w, isTarget ? Dotted : isNeck ? Dashed : Solid);
+        addLine(ln, c, isTarget ? 1 : w, isTarget ? Dotted : Solid);
       });
+      if (p.neckline) {
+        const live = sel || (state.selected == null && p.end >= state.data.candles.length - 1 - NECK_LIVE_BARS);
+        addNeckline(p, c, w, live);
+      }
       if (!dim) {
         const anchor = p.points.reduce((a, b) => (p.direction === "bearish" ? (b.value > a.value ? b : a) : (b.value < a.value ? b : a)), p.points[0]);
         markers.push({

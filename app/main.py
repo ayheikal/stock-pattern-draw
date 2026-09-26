@@ -90,6 +90,8 @@ def api_analyze(
         d["startTime"], d["endTime"] = t(p.start), t(p.end)
         d["points"] = [{"time": t(i), "index": int(i), "value": _r(v)} for i, v in p.points]
         d["lines"] = [[{"time": t(i), "index": int(i), "value": _r(v)} for i, v in ln] for ln in p.lines]
+        if p.neckline:
+            d["neckline"] = [{"time": t(i), "index": int(i), "value": _r(v)} for i, v in p.neckline]
         out_patterns.append(d)
 
     return {

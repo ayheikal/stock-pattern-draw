@@ -304,10 +304,10 @@ def _cups_one_side(piv: list[Pivot], high, low, close, atr, bull: bool) -> list[
                 points=[(left, hl * sgn), (bottom, lo * sgn), (right, hr * sgn), (h_idx, h_lo * sgn)],
                 lines=[
                     _cup_curve(left, bottom, right, hl, hr, lo, sgn),
-                    [(left, hr * sgn), (end, hr * sgn)],
                     [(right, hr * sgn), (h_idx, h_lo * sgn), (end, close[end] * sgn)],
                     target_segment(end, float(target), n),
                 ],
+                neckline=[(left, hr * sgn), (end, hr * sgn)],
                 target=round(float(target), 4),
                 confirmed=brk is not None,
                 label="C&H" if bull else "Inv C&H",

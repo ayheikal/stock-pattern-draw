@@ -17,6 +17,8 @@ class Pattern:
     confidence: float
     points: list[Point] = field(default_factory=list)
     lines: list[list[Point]] = field(default_factory=list)
+    # Breakout line (neckline, or a cup's rim); drawn separately so the chart can extend and label it.
+    neckline: list[Point] | None = None
     target: float | None = None
     confirmed: bool = False
     label: str = ""
