@@ -70,6 +70,21 @@ def test_bull_and_bear_flags():
     assert "Bear Flag" in names(bear) or "Bear Pennant" in names(bear)
 
 
+CUP = [(8, 92), (8, 86), (8, 83), (8, 82), (8, 83), (8, 86), (8, 92), (8, 100), (6, 94), (5, 96), (8, 110)]
+
+
+def test_cup_and_handle():
+    bull = make_ohlc(LEAD_UP + CUP)
+    assert "Cup and Handle" in names(bull)
+    bear = make_ohlc([(0, 130.0), (25, 100.0)] + [(b, 200 - p) for b, p in CUP])
+    assert "Inverted Cup and Handle" in names(bear)
+
+
+def test_v_shape_is_not_a_cup():
+    v = make_ohlc(LEAD_UP + [(32, 82), (32, 100), (6, 94), (5, 96), (8, 110)])
+    assert "Cup and Handle" not in names(v)
+
+
 def test_support_resistance_levels():
     path = [(0, 100.0)] + [(8, 120) if k % 2 == 0 else (8, 100) for k in range(12)]
     _, levels = analyze(make_ohlc(path))

@@ -18,9 +18,22 @@
     rightPriceScale: { borderVisible: false },
     timeScale: { borderVisible: false, rightOffset: 8 },
   });
-  const candles = chart.addCandlestickSeries({ borderVisible: false, priceLineVisible: false });
+  const candles = chart.addCandlestickSeries({ borderVisible: true, priceLineVisible: false });
+  const sma = chart.addLineSeries({ lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false, title: "SMA 200" });
   const volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+  const logScale = $("logScale");
+  try { const v = localStorage.getItem("logScale"); if (v != null) logScale.checked = v === "1"; } catch (_) {}
+  function applyScaleMode() {
+    const { Logarithmic, Normal } = LightweightCharts.PriceScaleMode;
+    chart.priceScale("right").applyOptions({ mode: logScale.checked ? Logarithmic : Normal });
+  }
+  logScale.addEventListener("change", () => {
+    applyScaleMode();
+    try { localStorage.setItem("logScale", logScale.checked ? "1" : "0"); } catch (_) {}
+  });
+  applyScaleMode();
 
   function applyTheme() {
     const text = css("--text"), grid = css("--grid");
@@ -29,10 +42,14 @@
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { vertLine: { labelBackgroundColor: text }, horzLine: { labelBackgroundColor: text } },
     });
+    // Hollow up candles, filled down candles, one ink color (TradingView "hollow" style).
+    const ink = css("--candle");
     candles.applyOptions({
-      upColor: css("--bull"), downColor: css("--bear"),
-      wickUpColor: css("--bull"), wickDownColor: css("--bear"),
+      upColor: css("--panel"), downColor: ink,
+      borderUpColor: ink, borderDownColor: ink,
+      wickUpColor: ink, wickDownColor: ink,
     });
+    sma.applyOptions({ color: css("--sma") });
     if (state.data) render();
   }
 
@@ -193,10 +210,45 @@
         <div class="basis">Stop: ${escapeHtml(p.stopBasis)}</div>
         ${p.warning ? `<div class="warn">⚠ ${escapeHtml(p.warning)}</div>` : ""}
       </div>`).join("");
+    renderDecision();
     $("outlookDrivers").innerHTML = o.drivers.length
       ? o.drivers.map((d) => `<li class="${d.direction}">${escapeHtml(d.text)}</li>`).join("")
       : `<li>No strong signals.</li>`;
   }
+
+  // ---------- decision ----------
+  const buyKey = () => `buyPrice:${state.data.symbol}`;
+  const adviceHtml = (title, a) => `
+    <div class="dec-title"><span>${title}</span><span class="action ${a.tone}">${escapeHtml(a.action)}</span></div>
+    <div class="dec-text">${escapeHtml(a.text)}</div>`;
+
+  function renderDecision() {
+    const d = state.data && state.data.outlook && state.data.outlook.decision;
+    if (!d) return;
+    const last = state.data.candles[state.data.candles.length - 1].close;
+    const buy = Number($("buyPrice").value);
+    const pnl = buy > 0 ? ((last - buy) / buy) * 100 : null;
+    const inProfit = pnl != null && pnl >= 0;
+
+    $("holdPnl").innerHTML = pnl == null ? "Enter your buy price to see which case applies."
+      : `Your position: <span class="${inProfit ? "up" : "down"}">${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%</span> (last ${fmt(last)})`
+        + (buy < d.stop ? ` · suggested stop ${fmt(d.stop)} is above your buy price, so it locks in a gain` : "");
+    const pBox = $("holdProfit"), lBox = $("holdLoss");
+    pBox.innerHTML = adviceHtml("In profit", d.holder.profit);
+    lBox.innerHTML = adviceHtml("At a loss", d.holder.loss);
+    pBox.classList.toggle("active", pnl != null && inProfit);
+    lBox.classList.toggle("active", pnl != null && !inProfit);
+    pBox.classList.toggle("dim", pnl != null && !inProfit);
+    lBox.classList.toggle("dim", pnl != null && inProfit);
+    $("newcomer").innerHTML = adviceHtml("No position", d.newcomer);
+    $("longTerm").textContent = d.longTerm || "";
+  }
+
+  $("buyPrice").addEventListener("input", () => {
+    if (!state.data) return;
+    try { localStorage.setItem(buyKey(), $("buyPrice").value); } catch (_) {}
+    renderDecision();
+  });
 
   function selectPattern(id) {
     state.selected = state.selected === id ? null : id;
@@ -211,7 +263,9 @@
     if (!c) { els.legend.innerHTML = ""; return; }
     const chg = prev ? ((c.close - prev.close) / prev.close) * 100 : 0;
     const cls = chg >= 0 ? "up" : "down";
-    els.legend.innerHTML = `${timeLabel(c.time)} &nbsp; O ${fmt(c.open)} H ${fmt(c.high)} L ${fmt(c.low)} C <span class="${cls}">${fmt(c.close)} (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)</span> &nbsp; Vol ${fmtVol(c.volume)}`;
+    const m = state.smaByTime && state.smaByTime.get(c.time);
+    els.legend.innerHTML = `${timeLabel(c.time)} &nbsp; O ${fmt(c.open)} H ${fmt(c.high)} L ${fmt(c.low)} C <span class="${cls}">${fmt(c.close)} (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)</span> &nbsp; Vol ${fmtVol(c.volume)}`
+      + (m != null ? ` &nbsp; <span class="sma">SMA ${state.data.sma.length} ${fmt(m)}</span>` : "");
   }
 
   chart.subscribeCrosshairMove((param) => {
@@ -235,11 +289,18 @@
       if (!res.ok) throw new Error(body.detail || `Request failed (${res.status})`);
       state.data = body;
       state.selected = null;
+      let saved = "";
+      try { saved = localStorage.getItem(buyKey()) || ""; } catch (_) {}
+      $("buyPrice").value = saved;
       if (push) history.pushState(null, "", `?${q}`);
       document.title = `${body.symbol} · Pattern Charts`;
       els.symbol.value = body.symbol;
 
       candles.setData(body.candles.map(({ volume: _v, ...c }) => c));
+      const smaPts = (body.sma && body.sma.points) || [];
+      sma.setData(smaPts);
+      sma.applyOptions({ title: body.sma ? `SMA ${body.sma.length}` : "" });
+      state.smaByTime = new Map(smaPts.map((p) => [p.time, p.value]));
       const up = css("--bull") + "66", down = css("--bear") + "66";
       volume.setData(body.candles.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? up : down })));
       chart.timeScale().applyOptions({ timeVisible: interval === "1h", secondsVisible: false });

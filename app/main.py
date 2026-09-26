@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
 from .outlook import build_outlook
 from .patterns import analyze
+from .screener import MAX_SYMBOLS, UNIVERSES, scan
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -27,6 +28,23 @@ def _times(index: pd.DatetimeIndex, interval: str) -> list:
 
 def _r(x: float) -> float:
     return round(float(x), 4)
+
+
+SMA_LENGTH = 200
+# A longer period to fetch so the SMA is defined from the first visible bar.
+WARMUP_PERIOD = {"3mo": "2y", "6mo": "2y", "1y": "2y", "2y": "5y", "5y": "10y", "10y": "max", "max": "max"}
+
+
+def _sma(resolved: str, df: pd.DataFrame, interval: str, period: str) -> pd.Series:
+    """Simple moving average of closes over SMA_LENGTH bars, aligned to df's index."""
+    closes = df["Close"]
+    if WARMUP_PERIOD[period] != period:
+        try:
+            _, longer, _ = fetch_ohlcv(resolved, interval, WARMUP_PERIOD[period])
+            closes = longer["Close"].combine_first(closes)
+        except (SymbolNotFound, InsufficientHistory):
+            pass
+    return closes.rolling(SMA_LENGTH).mean().reindex(df.index)
 
 
 @app.get("/api/analyze")
@@ -55,6 +73,7 @@ def api_analyze(
         )
 
     times = _times(df.index, interval)
+    sma = _sma(resolved, df, interval, period)
     patterns, levels = analyze(df)
 
     def t(i: int):
@@ -81,15 +100,50 @@ def api_analyze(
         "interval": interval,
         "period": period,
         "candles": candles,
+        "sma": {
+            "length": SMA_LENGTH,
+            "points": [{"time": times[i], "value": _r(v)} for i, v in enumerate(sma) if pd.notna(v)],
+        },
         "patterns": out_patterns,
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
-        "outlook": build_outlook(df, patterns, levels, interval),
+        "outlook": build_outlook(df, patterns, levels, interval, float(sma.iloc[-1]) if pd.notna(sma.iloc[-1]) else None),
     }
+
+
+@app.get("/api/universes")
+def api_universes():
+    return {k: {"label": u["label"], "count": len(u["symbols"])} for k, u in UNIVERSES.items()}
+
+
+@app.get("/api/screen")
+def api_screen(
+    universe: str = Query("egx"),
+    symbols: str = Query("", max_length=2000, description="Comma-separated list; overrides universe"),
+    interval: str = Query("1d"),
+    period: str = Query("1y"),
+    min_score: float = Query(0.4, description="0.4 = mildly bullish, 1.2 = bullish"),
+):
+    if interval not in VALID_INTERVALS or period not in VALID_PERIODS:
+        raise HTTPException(400, "invalid interval or period")
+    if symbols.strip():
+        syms = list(dict.fromkeys(s.strip().upper() for s in symbols.split(",") if s.strip()))
+    elif universe in UNIVERSES:
+        syms = UNIVERSES[universe]["symbols"]
+    else:
+        raise HTTPException(400, f"universe must be one of {sorted(UNIVERSES)}")
+    if len(syms) > MAX_SYMBOLS:
+        raise HTTPException(400, f"at most {MAX_SYMBOLS} symbols per scan")
+    return scan(syms, interval, period, min_score)
 
 
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/screener")
+def screener_page():
+    return FileResponse(STATIC / "screener.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

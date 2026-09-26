@@ -114,6 +114,8 @@ def fetch_ohlcv(symbol: str, interval: str = "1d", period: str = "1y") -> tuple[
             df, meta = _download(sym, interval, period) if provider == "yahoo" else fetch_tv(sym, interval, period)
         except Exception:  # provider errors just move on to the next candidate
             continue
+        if len(df) and (df["High"] == df["Low"]).mean() > 0.9:
+            continue  # frozen quotes (suspended/delisted): nothing to analyze
         if len(df) >= 30:
             result = (sym, df, meta)
             with _lock:

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bullish Screener</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Pattern Charts</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/screener" class="current">Screener</a></nav>
+    <form id="scan" class="search" autocomplete="off">
+      <select id="universe" title="Watchlist"></select>
+      <input id="symbols" placeholder="…or your own list: COMI.CA, EGX30, AAPL" title="Comma-separated symbols (overrides the watchlist)" />
+      <select id="minScore" title="Minimum outlook">
+        <option value="0.4" selected>Mildly bullish or better</option>
+        <option value="1.2">Bullish only</option>
+      </select>
+      <select id="interval" title="Bar interval">
+        <option value="1d" selected>Daily</option>
+        <option value="1wk">Weekly</option>
+      </select>
+      <button type="submit">Scan</button>
+    </form>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener">
+    <div class="screener-head">
+      <h1>Bullish list <span id="found" class="badge">0</span></h1>
+      <div id="scanInfo" class="muted"></div>
+    </div>
+    <div id="scanStatus" class="status inline">Pick a watchlist and press <b>Scan</b>.</div>
+    <div class="table-wrap">
+      <table id="results" hidden>
+        <thead>
+          <tr>
+            <th data-k="symbol">Symbol</th>
+            <th data-k="last" class="num">Last</th>
+            <th data-k="changePct" class="num">1 bar</th>
+            <th data-k="score" class="num">Outlook</th>
+            <th data-k="upsidePct" class="num">Upside</th>
+            <th data-k="upTarget" class="num">Target</th>
+            <th data-k="stop" class="num">Stop</th>
+            <th data-k="rr" class="num">R:R</th>
+            <th data-k="aboveSma200">SMA 200</th>
+            <th data-k="action">Action</th>
+            <th data-k="signal">Main signal</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted small">Ranked by outlook score, then upside to the target. Click a row to open its chart. Based on chart patterns only; not a forecast or advice.</p>
+  </main>
+
+  <script src="/static/screener.js"></script>
+</body>
+</html>

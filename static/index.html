@@ -9,7 +9,8 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">📐 Pattern Charts</div>
+    <a class="brand" href="/">📐 Pattern Charts</a>
+    <nav class="nav"><a href="/" class="current">Chart</a><a href="/screener">Screener</a></nav>
     <form id="search" class="search" autocomplete="off">
       <input id="symbol" name="symbol" list="examples" placeholder="Symbol or index, e.g. AAPL, ^GSPC, COMI.CA, EGX33" required />
       <datalist id="examples">
@@ -55,6 +56,7 @@
     <label><input type="checkbox" data-cat="trend" checked /> <span class="dot trend"></span>Trend lines</label>
     <label><input type="checkbox" data-cat="levels" checked /> <span class="dot lvl"></span>Support / Resistance</label>
     <label><input type="checkbox" data-cat="candle" checked /> <span class="dot cndl"></span>Candlesticks</label>
+    <label><input type="checkbox" id="logScale" checked /> Log scale</label>
     <label class="conf">Min confidence <input id="minConf" type="range" min="50" max="95" step="5" value="55" /> <output id="minConfOut">55%</output></label>
   </section>
 
@@ -83,6 +85,23 @@
         </ul>
         <div id="outlookPlans" class="plans"></div>
         <p id="outlookRange" class="meta"></p>
+        <div class="decision">
+          <h3>Decision</h3>
+          <div class="dec-block">
+            <div class="dec-head">
+              <span>If you already hold it</span>
+              <label class="buy-price">Buy price <input id="buyPrice" type="number" step="any" min="0" placeholder="optional" /></label>
+            </div>
+            <div id="holdPnl" class="meta"></div>
+            <div id="holdProfit" class="dec-case"></div>
+            <div id="holdLoss" class="dec-case"></div>
+          </div>
+          <div class="dec-block">
+            <div class="dec-head"><span>If you're new to it</span></div>
+            <div id="newcomer" class="dec-case"></div>
+          </div>
+          <p id="longTerm" class="meta"></p>
+        </div>
         <details>
           <summary>What drives this</summary>
           <ul id="outlookDrivers" class="drivers"></ul>

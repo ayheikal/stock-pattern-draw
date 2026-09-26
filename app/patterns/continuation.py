@@ -1,4 +1,4 @@
-"""Continuation patterns: triangles, wedges, rectangles, channels, flags and pennants."""
+"""Continuation patterns: triangles, wedges, rectangles, channels, flags, pennants and cups."""
 from __future__ import annotations
 
 import numpy as np
@@ -214,3 +214,108 @@ def _flags_one_side(high, low, close, atr, bull: bool) -> list[Pattern]:
 def detect_flags(df: pd.DataFrame, atr: np.ndarray) -> list[Pattern]:
     high, low, close = (df[c].to_numpy() for c in ("High", "Low", "Close"))
     return _flags_one_side(high, low, close, atr, bull=True) + _flags_one_side(-low, -high, -close, atr, bull=False)
+
+
+CUP_MIN_BARS, CUP_MAX_BARS = 15, 250
+
+
+def _cup_curve(left: int, bottom: int, right: int, hl: float, hr: float, lo: float, sgn: int) -> list[tuple[int, float]]:
+    """A U through both rims and the cup's low: a half-parabola on each side of the bottom."""
+    pts = []
+    for i in sorted({*np.linspace(left, bottom, 8).round().astype(int), *np.linspace(bottom, right, 8).round().astype(int)}):
+        rim, half = (hl, bottom - left) if i <= bottom else (hr, right - bottom)
+        pts.append((int(i), (lo + (rim - lo) * ((i - bottom) / max(half, 1)) ** 2) * sgn))
+    return pts
+
+
+def _cups_one_side(piv: list[Pivot], high, low, close, atr, bull: bool) -> list[Pattern]:
+    """Detect cup and handle; the inverted (bearish) cup is handled by mirroring prices."""
+    n = len(close)
+    sgn = 1 if bull else -1
+    out = []
+    for p in piv:
+        if p.kind != ("H" if bull else "L"):
+            continue
+        left, hl = p.idx, high[p.idx]
+        a = atr[left]
+        tol = max(a, 0.02 * abs(hl))
+        # Right rim: the first bar that climbs back to the left rim after a real descent.
+        dropped = np.flatnonzero(low[left + 1 : left + CUP_MAX_BARS] < hl - 3 * a)
+        if not len(dropped):
+            continue
+        d = left + 1 + int(dropped[0])
+        back = np.flatnonzero(high[d : left + CUP_MAX_BARS] >= hl - tol)
+        if not len(back):
+            continue
+        right = d + int(back[0])
+        while right + 1 < n and high[right] <= high[right + 1] <= hl + tol:
+            right += 1
+        width = right - left
+        if width < CUP_MIN_BARS or high[left + 1 : right].max() > hl + tol:
+            continue
+        # The left rim must top the advance leading into it.
+        if high[max(0, left - width // 2) : left].max(initial=-np.inf) > hl + 0.25 * a:
+            continue
+
+        hr = high[right]
+        bottom = left + int(np.argmin(low[left : right + 1]))
+        lo = low[bottom]
+        depth = (hl + hr) / 2 - lo
+        if depth < 3 * a or depth > 0.5 * abs(hl):
+            continue
+        # Rounded U, not a V: a parabola spends ~58% of its width in the bottom third, a V only ~33%.
+        rounded = float(np.mean(low[left : right + 1] <= lo + depth / 3))
+        pos = (bottom - left) / width
+        if rounded < 0.4 or not 0.2 <= pos <= 0.8:
+            continue
+
+        # Handle: a shallow pullback in the upper half of the cup, resolved by a close above the right rim.
+        hmax = max(5, width // 3)
+        h_lo, h_idx, brk, failed = hr, None, None, False
+        j = right + 1
+        for j in range(right + 1, min(n, right + 1 + hmax)):
+            if close[j] > hr:
+                brk = j
+                break
+            if low[j] < hr - 0.5 * depth:
+                failed = True
+                break
+            if low[j] < h_lo:
+                h_lo, h_idx = low[j], j
+        if failed or (brk is None and right + hmax < n):
+            continue  # handle too deep, or it never broke out
+        if h_idx is None or hr - h_lo < max(0.8 * a, 0.1 * depth) or (brk or j) - right < 3:
+            continue  # no real handle
+
+        end = brk if brk is not None else n - 1
+        target = project(hr * sgn, depth, up=bull)
+        conf = (
+            0.5 + 0.15 * min(1.0, (rounded - 0.4) / 0.25) + 0.1 * (1 - abs(pos - 0.5) / 0.3)
+            + 0.07 * (1 - abs(hl - hr) / tol) + (0.12 if brk is not None else 0)
+        )
+        out.append(
+            Pattern(
+                name="Cup and Handle" if bull else "Inverted Cup and Handle",
+                category="continuation",
+                direction="bullish" if bull else "bearish",
+                start=left,
+                end=end,
+                confidence=round(min(conf, 0.99), 2),
+                points=[(left, hl * sgn), (bottom, lo * sgn), (right, hr * sgn), (h_idx, h_lo * sgn)],
+                lines=[
+                    _cup_curve(left, bottom, right, hl, hr, lo, sgn),
+                    [(left, hr * sgn), (end, hr * sgn)],
+                    [(right, hr * sgn), (h_idx, h_lo * sgn), (end, close[end] * sgn)],
+                    target_segment(end, float(target), n),
+                ],
+                target=round(float(target), 4),
+                confirmed=brk is not None,
+                label="C&H" if bull else "Inv C&H",
+            )
+        )
+    return out
+
+
+def detect_cups(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> list[Pattern]:
+    high, low, close = (df[c].to_numpy() for c in ("High", "Low", "Close"))
+    return _cups_one_side(piv, high, low, close, atr, bull=True) + _cups_one_side(piv, -low, -high, -close, atr, bull=False)

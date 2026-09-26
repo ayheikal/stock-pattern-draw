@@ -85,7 +85,49 @@ def _plan(long: bool, entry: float, target: float, stop: float, label: str, basi
     }
 
 
-def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level], interval: str) -> dict:
+def _advice(action: str, tone: str, text: str) -> dict:
+    return {"action": action, "tone": tone, "text": text}
+
+
+def _decision(score: float, last: float, stop: float, support: float, resistance: float,
+              up_target: float, down_target: float, sma200: float | None) -> dict:
+    """What to do for someone already holding (in profit or at a loss) and for a newcomer, long-only."""
+    s, S, R, T, D = _fmt(stop), _fmt(support), _fmt(resistance), _fmt(up_target), _fmt(down_target)
+    if score >= 1.2:
+        profit = _advice("Hold", "good", f"Let the profit run. Raise your stop to {s} and consider taking some profit near {T}.")
+        loss = _advice("Hold", "good", f"The chart supports a recovery toward {T}. Keep a stop at {s}; exit if price closes below it.")
+        new = _advice("Buy", "good", f"Setup is bullish. Buy near {_fmt(last)} (or on a dip toward {S}), stop {s}, target {T}.")
+    elif score >= 0.4:
+        profit = _advice("Hold, tighten stop", "good", f"Keep the position but move your stop up to {s} to protect the gain.")
+        loss = _advice("Hold with stop", "caution", f"Signals lean positive, but don't add yet. Exit on a close below {s}; add only after a close above {R}.")
+        new = _advice("Buy a starter position", "good", f"Start with part of your intended size (e.g. half), stop {s}. Add the rest on a close above {R}.")
+    elif score > -0.4:
+        profit = _advice("Hold, take partial profit", "caution", f"No clear direction. Consider locking in part of the gain near {R}; exit the rest on a close below {S}.")
+        loss = _advice("Don't average down", "caution", f"No clear edge to recover. Hold only while price stays above {S}; exit on a close below it.")
+        new = _advice("Wait", "caution", f"No edge right now. Buy only after a close above {R}; stay out if it breaks below {S}.")
+    elif score > -1.2:
+        profit = _advice("Take partial profit", "caution", f"Momentum is fading. Take part of the gain (e.g. 1/3–1/2) and keep a stop at {s} on the rest.")
+        loss = _advice("Reduce / cut", "bad", f"Signals lean negative with downside toward {D}. Consider reducing now; exit fully on a close below {S}. Don't average down.")
+        new = _advice("Don't buy yet", "bad", f"Signals lean negative. Wait for a close above {R} or for price to stabilise near {D}.")
+    else:
+        profit = _advice("Sell / take profit", "bad", f"The chart has turned bearish, with downside toward {D}. Lock in the gain; re-buy only after a close above {R}.")
+        loss = _advice("Cut the loss", "bad", f"The chart is bearish, with downside toward {D}. Exiting limits further damage; re-evaluate after a close above {R}.")
+        new = _advice("Stay out", "bad", f"Bearish setup. Don't buy until price closes back above {R}.")
+
+    long_term = None
+    if sma200 is not None:
+        above = last >= sma200
+        dist = (last - sma200) / sma200 * 100
+        if above and score <= -0.4:
+            long_term = f"Price is still {dist:.1f}% above its 200-bar average ({_fmt(sma200)}), so the long-term uptrend is intact; a close below it would confirm weakness."
+        elif not above and score >= 0.4:
+            long_term = f"Price is {-dist:.1f}% below its 200-bar average ({_fmt(sma200)}), so the long-term trend is still down: keep position sizes small."
+        else:
+            long_term = f"Price is {abs(dist):.1f}% {'above' if above else 'below'} its 200-bar average ({_fmt(sma200)}), in line with the {'long-term uptrend' if above else 'long-term downtrend'}."
+    return {"stop": round(stop, 4), "holder": {"profit": profit, "loss": loss}, "newcomer": new, "longTerm": long_term}
+
+
+def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level], interval: str, sma200: float | None = None) -> dict:
     close_s = df["Close"]
     n, last = len(df), float(close_s.iloc[-1])
     a = float(compute_atr(df)[-1])
@@ -203,8 +245,12 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
                            f"Sell only on a close below {_fmt(support)}", "1.5 × ATR above the breakdown level", True))
 
     lo, hi = max(0.0, last - spread), last + spread
+    hold_stop, _ = _stop(True, last, mp, df, a, below)
+    if sma200 is None and n >= 200:
+        sma200 = float(close_s.rolling(200).mean().iloc[-1])
     return {
         "plans": plans,
+        "decision": _decision(score, last, hold_stop, support, resistance, up_target, down_target, sma200),
         "bias": bias,
         "score": round(score, 2),
         "horizon": horizon,
@@ -216,6 +262,8 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
             "high": round(hi, 4),
             "text": f"Typical range for the {horizon}: {_fmt(lo)} – {_fmt(hi)} (±{spread / last * 100:.1f}%, based on ATR).",
         },
+        "upTarget": round(up_target, 4),
+        "downTarget": round(down_target, 4),
         "support": round(support, 4),
         "resistance": round(resistance, 4),
         "drivers": drivers[:6],
