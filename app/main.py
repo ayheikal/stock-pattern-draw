@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
+from . import backtest, profile
 from .outlook import build_outlook
 from .patterns import analyze
 from .screener import MAX_SYMBOLS, UNIVERSES, scan
@@ -138,6 +139,70 @@ def api_screen(
     return scan(syms, interval, period, min_score)
 
 
+@app.get("/api/profile")
+def api_profile(interval: str = Query("1d"), live: bool = Query(True)):
+    """My entries; with live=true each is compared against the current chart outlook."""
+    if interval not in ("1d", "1wk"):
+        raise HTTPException(400, "interval must be 1d or 1wk")
+    if not live:
+        return profile.load().model_dump()
+    return profile.live_profile(interval, "5y" if interval == "1wk" else "1y")
+
+
+@app.put("/api/profile/name")
+def api_profile_name(body: dict):
+    return profile.set_name(str(body.get("name", ""))[:60]).model_dump()
+
+
+@app.put("/api/profile/settings")
+def api_profile_settings(settings: profile.Settings):
+    return profile.set_settings(settings).model_dump()
+
+
+@app.get("/api/size")
+def api_size(entry: float = Query(..., gt=0), stop: float = Query(..., gt=0), currency: str = Query("")):
+    """Shares to buy at `entry` with `stop`, under the rules saved in my profile."""
+    return profile.sizing_for(profile.load().settings, currency or None, entry, stop)
+
+
+@app.put("/api/profile/entries")
+def api_profile_upsert(entry: profile.Entry):
+    symbols = {e.symbol for e in profile.load().entries}
+    if entry.symbol not in symbols and len(symbols) >= MAX_SYMBOLS:
+        raise HTTPException(400, f"at most {MAX_SYMBOLS} entries")
+    return profile.upsert(entry).model_dump()
+
+
+@app.delete("/api/profile/entries/{symbol}")
+def api_profile_delete(symbol: str):
+    if not profile.remove(symbol):
+        raise HTTPException(404, f"'{symbol}' is not in your profile")
+    return {"ok": True}
+
+
+def _backtest_args(universe: str, interval: str) -> None:
+    if universe not in UNIVERSES:
+        raise HTTPException(400, f"universe must be one of {sorted(UNIVERSES)}")
+    if interval not in backtest.HISTORY:
+        raise HTTPException(400, f"interval must be one of {sorted(backtest.HISTORY)}")
+
+
+@app.get("/api/backtest")
+def api_backtest(universe: str = Query("egx"), interval: str = Query("1d"), range: str = Query("all")):
+    """Cached track record over a look-back period, plus whether a run is in progress."""
+    _backtest_args(universe, interval)
+    if range not in backtest.RANGES:
+        raise HTTPException(400, f"range must be one of {list(backtest.RANGES)}")
+    result = backtest.load(universe, interval)
+    return {"status": backtest.status(universe, interval), "result": result and backtest.view(result, range)}
+
+
+@app.post("/api/backtest/run")
+def api_backtest_run(universe: str = Query("egx"), interval: str = Query("1d")):
+    _backtest_args(universe, interval)
+    return {"started": backtest.start(universe, interval)}
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
@@ -146,6 +211,16 @@ def index():
 @app.get("/screener")
 def screener_page():
     return FileResponse(STATIC / "screener.html")
+
+
+@app.get("/profile")
+def profile_page():
+    return FileResponse(STATIC / "profile.html")
+
+
+@app.get("/track")
+def track_page():
+    return FileResponse(STATIC / "track.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

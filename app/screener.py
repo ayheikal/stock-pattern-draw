@@ -65,7 +65,9 @@ def _analyze_one(symbol: str, interval: str, period: str) -> dict:
         "score": o["score"],
         "upTarget": o["upTarget"],
         "upsidePct": round((o["upTarget"] - last) / last * 100, 2),
+        "downTarget": o["downTarget"],
         "stop": buy["stop"] if buy else None,
+        "chartStop": o["decision"]["stop"],  # where a long position's stop belongs, whatever the bias
         "rr": buy["rr"] if buy else None,
         "action": o["decision"]["newcomer"]["action"],
         "aboveSma200": None if sma200 is None else last >= sma200,

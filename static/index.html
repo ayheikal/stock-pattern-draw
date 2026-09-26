@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/">📐 Pattern Charts</a>
-    <nav class="nav"><a href="/" class="current">Chart</a><a href="/screener">Screener</a></nav>
+    <nav class="nav"><a href="/" class="current">Chart</a><a href="/screener">Screener</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
     <form id="search" class="search" autocomplete="off">
       <input id="symbol" name="symbol" list="examples" placeholder="Symbol or index, e.g. AAPL, ^GSPC, COMI.CA, EGX33" required />
       <datalist id="examples">
@@ -84,6 +84,7 @@
           <li class="bear" id="outlookBear"></li>
         </ul>
         <div id="outlookPlans" class="plans"></div>
+        <div id="planSize" class="plan-size" hidden></div>
         <p id="outlookRange" class="meta"></p>
         <div class="decision">
           <h3>Decision</h3>

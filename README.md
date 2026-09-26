@@ -50,6 +50,23 @@ are fetched from **TradingView** instead ([app/tradingview.py](app/tradingview.p
 TradingView history depth varies by index: EGX30 goes back to 1998, while
 EGX 33 Shariah starts in 2022.
 
+## Track record
+
+`/track` measures whether the outlook has actually worked. For each symbol in a watchlist it replays the
+outlook over up to 10 years of history: at every sample bar it rebuilds the outlook from the previous 250 bars
+only (no look-ahead), then records what price did over the outlook horizon and whether the trade plan hit its
+target or its stop first. Results are grouped by bias (Bullish … Bearish) and compared with a baseline of all
+periods, overall and per symbol. Your profile cards show the per-symbol record for the chart's current reading.
+
+Run it from the page (Run button, ~30 s for the EGX list), or from the command line:
+
+```powershell
+.venv\Scripts\python -m app.backtest egx 1d
+```
+
+Results are cached in `data/backtest_<watchlist>_<interval>.json` (git-ignored). Caveats: the watchlists are
+today's large caps (survivorship bias), there are no fees or slippage, and past results don't guarantee future ones.
+
 ## How it works
 
 ```

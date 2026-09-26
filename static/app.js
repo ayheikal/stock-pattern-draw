@@ -233,9 +233,38 @@
         ${p.warning ? `<div class="warn">⚠ ${escapeHtml(p.warning)}</div>` : ""}
       </div>`).join("");
     renderDecision();
+    renderSize(o);
     $("outlookDrivers").innerHTML = o.drivers.length
       ? o.drivers.map((d) => `<li class="${d.direction}">${escapeHtml(d.text)}</li>`).join("")
       : `<li>No strong signals.</li>`;
+  }
+
+  // ---------- position size (rules saved in My profile) ----------
+  async function renderSize(o) {
+    const box = $("planSize");
+    const buy = o.plans.find((p) => p.side === "long" && !p.conditional);
+    const entry = state.data.candles[state.data.candles.length - 1].close;
+    const stop = buy ? buy.stop : o.decision && o.decision.stop;
+    const symbol = state.data.symbol;
+    box.hidden = true;
+    if (!stop) return;
+    let z;
+    try {
+      const q = new URLSearchParams({ entry, stop, currency: state.data.currency || "" });
+      z = await (await fetch(`/api/size?${q}`)).json();
+    } catch (_) { return; }
+    if (!state.data || state.data.symbol !== symbol) return; // another symbol loaded meanwhile
+    const cur = escapeHtml(z.currency || "");
+    const pct = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+    box.innerHTML = z.ok
+      ? `<h3>💰 ${buy ? "How much to buy" : "If you decide to buy"}</h3>
+         Up to <b>${z.shares.toLocaleString()} shares</b> (about ${fmt(z.cost)} ${cur}, ${z.costPct}% of your capital),
+         with a stop at <b class="stp">${fmt(z.stop)}</b> (${pct(z.stopPct)}). If it's hit you lose about
+         <b class="down">${fmt(z.risk)} ${cur}</b> (${z.riskPct}% of your capital).
+         ${z.limitedBy === "size" ? '<div class="muted small">Capped by your limit per stock.</div>' : ""}
+         <div class="muted small">Sizing only controls how much you can lose. It says nothing about whether the stock will rise.</div>`
+      : `<h3>💰 ${buy ? "How much to buy" : "If you decide to buy"}</h3><span class="muted">${escapeHtml(z.reason)}</span>${z.configured === false ? ' <a href="/profile#settingsForm">Set it in My profile</a>' : ""}`;
+    box.hidden = false;
   }
 
   // ---------- decision ----------

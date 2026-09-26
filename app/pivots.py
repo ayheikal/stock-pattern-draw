@@ -18,7 +18,9 @@ def atr(df: pd.DataFrame, n: int = 14) -> np.ndarray:
     high, low, close = df["High"].to_numpy(), df["Low"].to_numpy(), df["Close"].to_numpy()
     prev_close = np.concatenate([[close[0]], close[:-1]])
     tr = np.maximum.reduce([high - low, np.abs(high - prev_close), np.abs(low - prev_close)])
-    return pd.Series(tr).ewm(alpha=1 / n, adjust=False, min_periods=1).mean().to_numpy()
+    a = pd.Series(tr).ewm(alpha=1 / n, adjust=False, min_periods=1).mean().to_numpy()
+    # Flat stretches (trading halts) give a zero ATR; floor it so ATR-scaled maths never divides by zero.
+    return np.maximum(a, np.abs(close) * 1e-4)
 
 
 def _local_extrema(values: np.ndarray, order: int, mode: str) -> list[int]:

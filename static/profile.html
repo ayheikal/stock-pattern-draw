@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My Profile</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Pattern Charts</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/screener">Screener</a><a href="/profile" class="current">My profile</a><a href="/track">Track record</a></nav>
+    <div class="search">
+      <select id="interval" title="Compare against the outlook on">
+        <option value="1d" selected>Daily outlook</option>
+        <option value="1wk">Weekly outlook</option>
+      </select>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener profile">
+    <div class="screener-head">
+      <h1><input id="profileName" class="name-input" placeholder="My profile" maxlength="60" title="Your name" /> <span id="count" class="badge">0</span></h1>
+    </div>
+
+    <form id="settingsForm" class="settings-bar" autocomplete="off">
+      <div class="form-title">My money &amp; rules <span class="muted small">used to tell you how many shares to buy</span></div>
+      <label>Capital<input id="s-capital" type="number" min="0" step="any" placeholder="e.g. 200000" /></label>
+      <label>Currency<input id="s-currency" value="EGP" maxlength="8" /></label>
+      <label title="If a stop-loss is hit, you lose at most this share of your capital">Max loss per trade
+        <span class="suffix"><input id="s-riskPct" type="number" min="0.1" max="10" step="0.1" value="1" />%</span></label>
+      <label title="No single stock may be more than this share of your capital">Max in one stock
+        <span class="suffix"><input id="s-maxPositionPct" type="number" min="1" max="100" step="1" value="25" />%</span></label>
+      <button type="submit" class="primary">Save</button>
+      <span id="settingsSaved" class="muted small"></span>
+      <p class="muted small rule-hint">A common rule is to lose at most <b>1–2%</b> of your money on any one trade, and keep any one stock under <b>20–25%</b>.</p>
+    </form>
+
+    <section id="summaryPanel" class="summary-panel" hidden>
+      <div class="tiles" id="tiles"></div>
+      <div id="attention" class="attention"></div>
+    </section>
+
+    <form id="entryForm" class="entry-form" autocomplete="off">
+      <div class="form-title"><span id="formTitle">Add an index or stock</span></div>
+      <label>Symbol<input id="f-symbol" list="examples" placeholder="EGX30, COMI.CA, ^GSPC" required /></label>
+      <datalist id="examples">
+        <option value="EGX30">EGX 30 Index</option>
+        <option value="EGX33">EGX 33 Shariah Index</option>
+        <option value="EGX70">EGX 70 EWI Index</option>
+        <option value="EGX100">EGX 100 Index</option>
+        <option value="^GSPC">S&amp;P 500</option>
+        <option value="^NDX">Nasdaq 100</option>
+        <option value="^DJI">Dow Jones</option>
+        <option value="GC=F">Gold futures</option>
+        <option value="BTC-USD">Bitcoin</option>
+      </datalist>
+      <fieldset>
+        <legend>My position</legend>
+        <label>Side
+          <select id="f-position">
+            <option value="none">None (watching)</option>
+            <option value="long">Long</option>
+            <option value="short">Short</option>
+          </select>
+        </label>
+        <label>Quantity<input id="f-qty" type="number" min="0" step="any" /></label>
+        <label>Avg. cost<input id="f-avgCost" type="number" min="0" step="any" /></label>
+      </fieldset>
+      <fieldset>
+        <legend>My expectation</legend>
+        <label>Direction
+          <select id="f-expectation">
+            <option value="bullish">Bullish (up)</option>
+            <option value="neutral" selected>Neutral (sideways)</option>
+            <option value="bearish">Bearish (down)</option>
+          </select>
+        </label>
+        <label>Target<input id="f-target" type="number" min="0" step="any" /></label>
+        <label>Stop / invalidation<input id="f-stop" type="number" min="0" step="any" /></label>
+        <label>Horizon<input id="f-horizon" placeholder="e.g. 3 months" maxlength="40" /></label>
+      </fieldset>
+      <label class="wide">Note<textarea id="f-note" rows="2" maxlength="500" placeholder="Why I hold it / what I'm waiting for"></textarea></label>
+      <div class="form-actions">
+        <button type="submit" class="primary">Save</button>
+        <button type="button" id="cancelEdit" hidden>Cancel</button>
+      </div>
+    </form>
+
+    <div id="status" class="status inline">Loading…</div>
+    <div id="cards" class="cards"></div>
+    <p class="muted small">"Chart says" is the pattern-based outlook on the chosen interval. It is a second opinion, not a forecast or advice.</p>
+  </main>
+
+  <script src="/static/profile.js"></script>
+</body>
+</html>

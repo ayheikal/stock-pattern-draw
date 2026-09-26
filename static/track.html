@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Track Record</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Pattern Charts</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/screener">Screener</a><a href="/profile">My profile</a><a href="/track" class="current">Track record</a></nav>
+    <div class="search">
+      <select id="universe" title="Watchlist"></select>
+      <select id="interval" title="Bar interval">
+        <option value="1d" selected>Daily</option>
+        <option value="1wk">Weekly</option>
+      </select>
+      <select id="range" title="Only count signals from this period">
+        <option value="6mo">Last 6 months</option>
+        <option value="1y">Last 1 year</option>
+        <option value="2y">Last 2 years</option>
+        <option value="5y">Last 5 years</option>
+        <option value="all" selected>All history</option>
+      </select>
+      <button id="run" type="button">Run</button>
+    </div>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener track">
+    <div class="screener-head">
+      <h1>Track record</h1>
+      <div id="meta" class="muted"></div>
+    </div>
+    <div id="status" class="status inline">Loading…</div>
+
+    <section id="report" hidden>
+      <div id="verdict" class="verdict"></div>
+
+      <h2>By outlook <span class="muted small" id="horizonNote"></span></h2>
+      <div class="table-wrap">
+        <table id="buckets" class="data">
+          <thead>
+            <tr>
+              <th>Outlook said</th>
+              <th class="num">Signals</th>
+              <th class="num" title="Average price change over the outlook horizon">Avg change</th>
+              <th class="num" title="Average change minus the average of all weeks">vs any week</th>
+              <th class="num" title="Share of signals where price moved in the predicted direction">Moved as said</th>
+              <th class="num" title="Trade plan: target touched before stop">Target first</th>
+              <th class="num" title="Trade plan: stop touched before target">Stop first</th>
+              <th class="num" title="Average result of the trade plan in units of risk">Avg R</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>By symbol <button id="toggleDetails" type="button" class="link-btn">Show details</button></h2>
+      <p class="muted small legend-line">Should you trust the chart's <b>bullish</b> signals (the ones you'd buy on) for each stock?
+        <span class="verdict-pill useful">Useful</span> it rose clearly more often than in a normal week ·
+        <span class="verdict-pill unclear">Unclear</span> a big gap, but too few signals to rule out luck ·
+        <span class="verdict-pill none">No edge</span> about the same as a coin flip ·
+        <span class="verdict-pill misleading">Misleading</span> it rose less often than normal ·
+        <span class="verdict-pill few">Not enough data</span> under 30 signals.</p>
+      <p id="fewHint" class="hint" hidden>This period is too short to judge individual stocks (each needs 30+ bullish signals). The totals above still count; pick <b>2 years</b> or longer for per-stock verdicts.</p>
+      <div class="table-wrap" id="simpleWrap">
+        <table id="simple" class="data">
+          <thead><tr><th>Symbol</th><th>Verdict</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="detailsWrap" hidden>
+      <p class="muted small legend-line">Green / red = the gap passed the luck check. <span class="unproven">Dotted</span> = a gap of 3+ points that could still be luck.</p>
+      <div class="table-wrap">
+        <table id="symbols" class="data">
+          <thead>
+            <tr>
+              <th data-k="symbol">Symbol</th>
+              <th data-k="n" class="num">Signals</th>
+              <th data-k="bullN" class="num">Bullish signals</th>
+              <th data-k="bullUp" class="num">…then rose</th>
+              <th data-k="bullEdge" class="num" title="How much more often price rose after a bullish signal than in any week for this symbol (percentage points)">Edge</th>
+              <th data-k="bullAvg" class="num">…avg change</th>
+              <th data-k="bearN" class="num">Bearish signals</th>
+              <th data-k="bearDown" class="num">…then fell</th>
+              <th data-k="baseUp" class="num">Any week rose</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      </div>
+
+      <div class="caveats muted small">
+        <b>How this is measured.</b> At each sample (one per horizon, so windows never overlap) the outlook is rebuilt from
+        the previous <span id="win">250</span> bars only, exactly as the live chart would have shown it, then compared with what
+        price did next. The trade plan is checked bar by bar: if target and stop are both touched on the same bar, it counts as
+        a stop. <b>Limits:</b> the watchlist is today's large caps (companies that failed are missing, which flatters results),
+        no fees or slippage, and a past record is no promise about the future.
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/track.js"></script>
+</body>
+</html>
