@@ -540,3 +540,12 @@ body {
 .qr { width: 180px; height: 180px; flex: none; background: #fff; border-radius: 8px; padding: 4px; }
 .qr svg { width: 100%; height: 100%; display: block; }
 .phone-row .setup-steps { flex: 1 1 260px; margin: 0; }
+
+/* --- Chart page: add to my profile --- */
+.title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.profile-btn { font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; border-radius: 16px; padding: 4px 12px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; text-decoration: none; }
+.profile-btn:disabled { opacity: .6; cursor: wait; }
+.profile-btn.in { background: transparent; color: var(--bull); border-color: var(--bull); }
+.profile-btn.in:hover { background: var(--hover); }
+.title-row .down { color: var(--bear); }

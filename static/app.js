@@ -330,6 +330,48 @@
   });
 
   // ---------- data loading ----------
+  // ---------- "Add to my profile" ----------
+  // The profile keeps EGX stocks as XXX.CA (Yahoo style) even when the chart came from TradingView (EGX:XXX);
+  // indices keep the name that was typed (EGX30).
+  const profileSymbol = (d, typed) => (!d.currency ? typed : d.symbol.startsWith("EGX:") ? `${d.symbol.slice(4)}.CA` : d.symbol);
+  const canon = (s) => String(s || "").toUpperCase().replace(/^EGX:(.+)$/, "$1.CA");
+
+  async function renderProfileButton(typed) {
+    const slot = $("profileSlot");
+    const d = state.data;
+    slot.innerHTML = "";
+    let entries = [];
+    try {
+      const r = await fetch("/api/profile?live=false");
+      if (r.ok) entries = (await r.json()).entries || [];
+    } catch (_) { return; }
+    if (state.data !== d) return; // another symbol loaded meanwhile
+    const sym = profileSymbol(d, typed);
+    const mine = new Set(entries.map((e) => canon(e.symbol)));
+    const found = [sym, typed, d.symbol].map(canon).find((s) => mine.has(s));
+    const link = (s) => `/profile#card=${encodeURIComponent(entries.find((e) => canon(e.symbol) === s)?.symbol || sym)}`;
+    if (found) {
+      slot.innerHTML = `<a class="profile-btn in" href="${link(found)}" title="Open its card in My profile">✓ In my profile</a>`;
+      return;
+    }
+    slot.innerHTML = `<button type="button" class="profile-btn" title="Add ${escapeHtml(sym)} to My profile as a stock you watch">＋ Add to my profile</button>`;
+    slot.querySelector("button").addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/profile/entries", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: sym, position: "none", expectation: "neutral" }),
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || `Request failed (${r.status})`);
+        slot.innerHTML = `<a class="profile-btn in" href="/profile#card=${encodeURIComponent(sym)}" title="Open it to set your view, stop and target">✓ Added: open in My profile</a>`;
+      } catch (err) {
+        btn.disabled = false;
+        slot.insertAdjacentHTML("beforeend", ` <span class="down small">${escapeHtml(err.message)}</span>`);
+      }
+    });
+  }
+
   async function load(symbol, interval, period, push = true) {
     symbol = symbol.trim().toUpperCase();
     if (!symbol) return;
@@ -367,6 +409,7 @@
       renderOutlook(body.outlook);
       render();
       setStatus("");
+      renderProfileButton(symbol);
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
     } finally {

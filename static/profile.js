@@ -40,6 +40,11 @@
       state.entries = body.entries;
       state.summary = body.summary;
       render();
+      const want = decodeURIComponent((location.hash.match(/^#card=(.+)$/) || [])[1] || "");
+      if (want) {
+        history.replaceState(null, "", location.pathname); // only once
+        goTo(want);
+      }
       setStatus(body.entries.length ? "" : "Your profile is empty. Add the indices and stocks you follow above.");
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
