@@ -126,3 +126,57 @@ def test_held_position_stop_follows_the_position_not_the_view():
     out = profile.compare(e, live_row("ADIB", 51.0, 0.9))
     assert out["status"] == "stop hit"
     assert any(a["kind"] == "stop" for a in profile.summarize([out])["attention"])
+
+
+RULES = profile.Settings(capital=100_000, riskPct=1, maxPositionPct=25)
+
+
+def act(last: float, score: float = 0.0, chart_stop: float | None = None, **entry) -> dict:
+    row = live_row("X", last, score) | {"chartStop": chart_stop}
+    return profile.compare(profile.Entry(symbol="X", **entry), row, settings=RULES)["action"]
+
+
+@pytest.mark.parametrize("entry, last, action, group, reason_has", [
+    # holding
+    (dict(position="long", qty=100, avgCost=50, stop=45, target=70), 44.0, "Cut loss", "Sell", "broke your stop"),
+    (dict(position="long", qty=100, avgCost=40, stop=45, target=70), 44.0, "Exit (stop)", "Sell", "keep the gain"),
+    (dict(position="long", qty=100, avgCost=50, stop=45, target=70), 71.0, "Take profit", "Sell", "reached your target"),
+    (dict(position="long", qty=100, avgCost=50, stop=45, expectation="bearish"), 50.0, "Sell", "Sell", "expect it to fall"),
+    # 1000 x 50 = 50% of capital, limit 25% -> keep 500, sell 500
+    (dict(position="long", qty=1000, avgCost=40, stop=49, expectation="bullish"), 50.0, "Trim", "Sell", "Sell 500"),
+    (dict(position="long", qty=100, avgCost=50, expectation="bullish"), 50.0, "Set stop", "Hold", "no stop-loss"),
+    (dict(position="long", qty=100, avgCost=50, stop=49, expectation="bullish"), 50.0, "Watch closely", "Hold", "above your stop"),
+    # rules allow 1000/(55-45)=100 shares and I hold 100: no room -> Hold
+    (dict(position="long", qty=100, avgCost=50, stop=45, target=70, expectation="bullish"), 55.0, "Hold", "Hold", "stay in"),
+    # rules allow 100, I hold 40 -> add 60; target gain 15 >= stop risk 10
+    (dict(position="long", qty=40, avgCost=50, stop=45, target=70, expectation="bullish"), 55.0, "Add more", "Buy", "60 more shares"),
+    # watching
+    (dict(expectation="neutral"), 50.0, "Watch", "Wait", "isn't bullish"),
+    (dict(expectation="bullish", stop=45, target=52), 50.0, "Wait for dip", "Wait", "gains less"),
+    (dict(expectation="bullish", target=48), 50.0, "Wait", "Wait", "already at your target"),
+    # 1% of 100k = 1000 / 5 per share = 200 shares (10k, under the 25% cap)
+    (dict(expectation="bullish", stop=45, target=70), 50.0, "Buy", "Buy", "200 shares"),
+])
+def test_actions(entry, last, action, group, reason_has):
+    a = act(last, **entry)
+    assert (a["action"], a["group"]) == (action, group) and reason_has in a["reason"]
+
+
+def test_action_ignores_the_chart_bias():
+    plan = dict(position="long", qty=100, avgCost=50, stop=45, target=70, expectation="bullish")
+    assert act(55.0, score=-2.0, **plan)["action"] == act(55.0, score=2.0, **plan)["action"] == "Hold"
+
+
+def test_watching_buy_uses_chart_stop_when_i_have_none():
+    a = act(50.0, chart_stop=48.0, expectation="bullish")
+    assert a["action"] == "Buy" and a["shares"] == 500  # 1000 / 2 = 500 shares = 25k, exactly the cap
+
+
+def test_summary_groups_actions():
+    rows = [profile.compare(profile.Entry(symbol=s, **kw), live_row(s, 50.0, 0.0), settings=RULES) for s, kw in [
+        ("A", dict(expectation="bullish", stop=45)),
+        ("B", dict(position="long", qty=10, avgCost=40, stop=45)),
+        ("C", dict(position="long", qty=10, avgCost=60, stop=55)),
+        ("D", dict(expectation="neutral")),
+    ]]
+    assert profile.summarize(rows, RULES)["todo"] == {"buy": ["A"], "hold": ["B"], "sell": ["C"], "wait": ["D"]}

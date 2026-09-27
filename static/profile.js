@@ -1,6 +1,8 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { entries: [], editing: null };
+  const state = { entries: [], editing: null, open: new Set() };
+  try { state.open = new Set(JSON.parse(localStorage.getItem("profileOpen") || "[]")); } catch (_) {}
+  const saveOpen = () => { try { localStorage.setItem("profileOpen", JSON.stringify([...state.open])); } catch (_) {} };
   const FIELDS = ["symbol", "position", "qty", "avgCost", "expectation", "target", "stop", "horizon", "note"];
   const NUMERIC = ["qty", "avgCost", "target", "stop"];
   const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -90,7 +92,19 @@
       : '<div class="muted small">Add a quantity and average cost to your positions to see value and P/L.</div>';
     const perf = (label, p) => (p ? `<div class="kv"><span>${label}</span><span><b>${escapeHtml(p.symbol)}</b> <span class="${cls(p.plPct)}">${pct(p.plPct)}</span></span></div>` : "");
 
+    const todo = s.todo || {};
+    const tagOf = Object.fromEntries(state.entries.filter((e) => e.action).map((e) => [e.symbol, e.action.action]));
+    const todoRow = (k, label) => (todo[k] && todo[k].length
+      ? `<div class="todo-row"><span class="act ${k}">${label}</span><span>${todo[k].map((x) => {
+          const tag = tagOf[x] && tagOf[x] !== label ? ` <span class="muted small">(${escapeHtml(tagOf[x])})</span>` : "";
+          return `<a href="#" data-goto="${escapeHtml(x)}">${escapeHtml(x)}</a>${tag}`;
+        }).join(", ")}</span></div>` : "");
     $("tiles").innerHTML = `
+      <div class="tile todo">
+        <h3>What to do</h3>
+        ${todoRow("sell", "Sell")}${todoRow("buy", "Buy")}${todoRow("hold", "Hold")}${todoRow("wait", "Wait")}
+        <div class="muted small">From your own view, stop and target, and your money rules. Not from the chart signals.</div>
+      </div>
       <div class="tile">
         <h3>Portfolio</h3>
         ${books}
@@ -118,15 +132,27 @@
       : '<p class="all-clear">✓ Nothing needs attention: no stops or targets hit, and the chart doesn\'t contradict any position you hold.</p>';
   }
 
+  $("tiles").addEventListener("click", (ev) => {
+    const a = ev.target.closest("a[data-goto]");
+    if (!a) return;
+    ev.preventDefault();
+    goTo(a.dataset.goto);
+  });
+
+  function goTo(symbol) {
+    const el = [...document.querySelectorAll(".card")].find((c) => c.dataset.symbol === symbol);
+    if (!el) return;
+    setOpen(el, true);
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("flash");
+    setTimeout(() => el.classList.remove("flash"), 1200);
+  }
+
   $("attention").addEventListener("click", (ev) => {
     const a = ev.target.closest("a[data-goto]");
     if (!a) return;
     ev.preventDefault();
-    const el = [...document.querySelectorAll(".card")].find((c) => c.dataset.symbol === a.dataset.goto);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("flash");
-    setTimeout(() => el.classList.remove("flash"), 1200);
+    goTo(a.dataset.goto);
   });
 
   // How the chart's current bias has played out on this symbol before (from the Track record page).
@@ -195,11 +221,20 @@
           ${trackLine(e.track)}
         </div>`;
 
+    const open = state.open.has(e.symbol);
+    const mini = [
+      e.position === "none" ? "Watching" : `${cap(e.position)}${e.qty != null ? ` ${fmt(e.qty)}` : ""}${e.avgCost != null ? ` @ ${fmt(e.avgCost)}` : ""}`,
+      e.plPct != null ? `<span class="${cls(e.plPct)}">${pct(e.plPct)}</span>` : "",
+      e.stop != null ? `stop <b class="stp">${fmt(e.stop)}</b>${e.toStopPct != null ? ` <span class="muted">${pct(e.toStopPct)}</span>` : ""}` : "",
+      e.target != null ? `target <b class="tgt">${fmt(e.target)}</b>${e.toTargetPct != null ? ` <span class="muted">${pct(e.toTargetPct)}</span>` : ""}` : "",
+    ].filter(Boolean).join(" · ");
+
     return `
-      <article class="card ${e.expectation}" data-symbol="${escapeHtml(e.symbol)}">
-        <header class="card-head">
-          <div>
-            <a class="sym" href="${chartUrl}">${escapeHtml(e.symbol)}</a>
+      <article class="card ${e.expectation} ${open ? "" : "collapsed"}" data-symbol="${escapeHtml(e.symbol)}">
+        <header class="card-head" data-act="toggle" title="${open ? "Hide details" : "Show details"}">
+          <button type="button" class="chev" data-act="toggle" aria-expanded="${open}" aria-label="Toggle details">▸</button>
+          <div class="head-main">
+            <a class="sym" href="${chartUrl}">${escapeHtml(e.symbol)}</a>${e.action ? ` <span class="act ${e.action.tone}" title="${escapeHtml(e.action.group)}">${escapeHtml(e.action.action)}</span>` : ""}
             <div class="muted small">${escapeHtml(e.name || "")}</div>
           </div>
           <div class="price">
@@ -207,6 +242,9 @@
             <div class="muted small">${escapeHtml(e.currency || "")}</div>
           </div>
         </header>
+        ${e.action ? `<div class="action-bar ${e.action.tone}"><b>${escapeHtml(e.action.group)}:</b> ${escapeHtml(e.action.reason)}</div>` : ""}
+        <div class="card-mini">${mini}</div>
+        <div class="card-details">
         <div class="tags">${agreeTag}${statusTag}</div>
         <div class="card-body">
           <div class="card-block">
@@ -230,6 +268,7 @@
           <button type="button" data-act="edit">Edit</button>
           <button type="button" data-act="delete" class="danger">Remove</button>
         </footer>
+        </div>
       </article>`;
   }
 
@@ -286,7 +325,22 @@
     }
   });
 
+  function setOpen(article, open) {
+    const sym = article.dataset.symbol;
+    article.classList.toggle("collapsed", !open);
+    article.querySelector(".chev").setAttribute("aria-expanded", String(open));
+    article.querySelector(".card-head").title = open ? "Hide details" : "Show details";
+    if (open) state.open.add(sym); else state.open.delete(sym);
+    saveOpen();
+  }
+
   $("cards").addEventListener("click", async (ev) => {
+    const toggle = ev.target.closest("[data-act=toggle]");
+    if (toggle && !ev.target.closest("a")) {
+      const article = toggle.closest(".card");
+      setOpen(article, article.classList.contains("collapsed"));
+      return;
+    }
     const btn = ev.target.closest("button[data-act]");
     if (!btn) return;
     const sym = btn.closest(".card").dataset.symbol;
@@ -307,6 +361,11 @@
       .catch((err) => setStatus(escapeHtml(err.message), true));
   });
   $("interval").addEventListener("change", load);
+  const setAll = (open) => {
+    document.querySelectorAll(".card").forEach((c) => setOpen(c, open));
+  };
+  $("expandAll").addEventListener("click", () => setAll(true));
+  $("collapseAll").addEventListener("click", () => setAll(false));
   $("refresh").addEventListener("click", load);
 
   const root = document.documentElement;

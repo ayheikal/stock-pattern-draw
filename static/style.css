@@ -436,3 +436,39 @@ body {
   .settings-bar label { flex: 1 1 130px; }
   .settings-bar input, .settings-bar .suffix input { width: 100%; }
 }
+
+/* --- Buy / Hold / Sell --- */
+.act { display: inline-block; min-width: 64px; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; border-radius: 6px; padding: 3px 8px; color: #fff; background: var(--neutral); white-space: nowrap; }
+.act.buy { background: var(--bull); }
+.act.sell { background: var(--bear); }
+.act.hold { background: var(--accent); }
+.act.wait { background: var(--muted); }
+.act.caution { background: var(--resistance); }
+.card-head .act { margin-left: 6px; vertical-align: 2px; min-width: 0; }
+.action-bar { padding: 7px 10px; border-radius: 8px; background: var(--hover); font-size: 13px; line-height: 1.5; box-shadow: inset 3px 0 0 var(--muted); }
+.action-bar.buy { box-shadow: inset 3px 0 0 var(--bull); }
+.action-bar.sell { box-shadow: inset 3px 0 0 var(--bear); }
+.action-bar.hold { box-shadow: inset 3px 0 0 var(--accent); }
+.action-bar.caution { box-shadow: inset 3px 0 0 var(--resistance); }
+.tile.todo .todo-row { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.tile.todo .todo-row a { color: var(--text); font-weight: 600; text-decoration: none; }
+.tile.todo .todo-row a:hover { color: var(--accent); }
+.tile.todo .muted { margin-top: 6px; }
+
+/* --- Collapsible cards --- */
+.cards { align-items: start; }
+.cards-toolbar { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; flex-wrap: wrap; }
+.cards-toolbar .muted { margin-right: auto; }
+.cards-toolbar .link-btn { margin-left: 0; }
+.card-head { cursor: pointer; align-items: flex-start; }
+.card-head .head-main { flex: 1; min-width: 0; }
+.chev { flex: none; width: 22px; height: 22px; margin-top: 1px; border: 0; background: none; color: var(--muted); font-size: 14px; cursor: pointer; transition: transform .15s; border-radius: 4px; }
+.chev:hover { background: var(--hover); color: var(--text); }
+.chev[aria-expanded="true"] { transform: rotate(90deg); }
+.card-mini { display: none; font-size: 13px; font-variant-numeric: tabular-nums; }
+.card-mini .up { color: var(--bull); } .card-mini .down { color: var(--bear); }
+.card-mini .tgt { color: var(--bull); } .card-mini .stp { color: var(--bear); }
+.card-details { display: flex; flex-direction: column; gap: 8px; }
+.card.collapsed { gap: 6px; }
+.card.collapsed .card-details { display: none; }
+.card.collapsed .card-mini { display: block; }

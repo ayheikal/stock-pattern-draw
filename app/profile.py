@@ -5,6 +5,7 @@ Stored as JSON on disk (data/profile.json, or $PROFILE_PATH) and compared live a
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -161,7 +162,7 @@ def compare(entry: Entry, live: dict, track: dict | None = None, settings: Setti
     else:
         agreement = "disagrees"
 
-    return out | {
+    res = out | {
         "resolved": live["symbol"],
         "name": live["name"],
         "currency": live["currency"],
@@ -182,6 +183,7 @@ def compare(entry: Entry, live: dict, track: dict | None = None, settings: Setti
         "track": _track_line(track, live["bias"]),
         **_money(entry, live, settings or Settings()),
     }
+    return res | {"action": action_for(entry, res, settings or Settings())}
 
 
 def _money(entry: Entry, live: dict, settings: Settings) -> dict:
@@ -208,7 +210,99 @@ def _track_line(track: dict | None, bias: str) -> dict | None:
     return {k: b[k] for k in ("bias", "n", "asExpected", "avgRet", "excess", "small")} | {"baseline": track["baseline"]}
 
 
+GROUP = {"buy": "Buy", "sell": "Sell", "hold": "Hold", "caution": "Hold", "wait": "Wait"}
+
+
+def _act(action: str, tone: str, reason: str, **extra) -> dict:
+    """`action` is the specific tag (e.g. "Cut loss"); `group` is the plain Buy / Hold / Sell / Wait."""
+    return {"action": action, "tone": tone, "group": GROUP[tone], "reason": reason} | extra
+
+
 NEAR_STOP_PCT = 3.0
+
+
+def _room_to_add(entry: Entry, last: float, settings: Settings) -> int:
+    """Extra shares my rules still allow on top of what I hold (0 if none or unknown)."""
+    if not (settings.capital and entry.qty and entry.stop and entry.stop < last):
+        return 0
+    z = size_position(settings.capital, settings.riskPct, settings.maxPositionPct, last, entry.stop)
+    return max(0, z["shares"] - int(entry.qty)) if z["ok"] else 0
+
+
+def action_for(entry: Entry, e: dict, settings: Settings) -> dict:
+    """Buy / Hold / Sell from my own plan (view, stop, target) and my money rules.
+
+    The chart's bias is deliberately not an input: the track record shows it has no reliable edge.
+    """
+    last, stop, target = e["last"], entry.stop, entry.target
+    f = lambda x: f"{x:,.2f}"
+
+    if entry.position == "short":
+        if e["status"] == "stop hit":
+            return _act("Cover (stop)", "sell", f"The price rose past your stop ({f(stop)}). Your plan says buy back and close the short.")
+        if e["status"] == "target hit":
+            return _act("Take profit", "sell", f"The price reached your target ({f(target)}). Buy back and take the profit.")
+        return _act("Hold", "hold", "Your short is between its stop and target.")
+
+    if entry.position == "long":
+        if e["status"] == "stop hit":
+            if entry.avgCost and last < entry.avgCost:
+                return _act("Cut loss", "sell", f"The price broke your stop ({f(stop)}). Your plan says exit now, to keep a small loss from growing.")
+            return _act("Exit (stop)", "sell", f"The price fell back through your stop ({f(stop)}). Exit and keep the gain that's left.")
+        if e["status"] == "target hit":
+            return _act("Take profit", "sell", f"The price reached your target ({f(target)}). Take the profit, or move your stop up and hold for more.")
+        if entry.expectation == "bearish":
+            return _act("Sell", "sell", "You expect it to fall but still hold it. Sell, or update your view if it has changed.")
+        x = e.get("exposure")
+        if x and entry.qty and settings.capital:
+            cap = math.floor(settings.capital * settings.maxPositionPct / 100 / last)
+            by_risk = math.floor(settings.capital * settings.riskPct / 100 / (last - stop)) if stop and stop < last else None
+            allowed = min(cap, by_risk) if by_risk is not None else cap
+            too_big = x["weightPct"] > settings.maxPositionPct
+            too_risky = x["riskPct"] is not None and x["riskPct"] > settings.riskPct * 1.5
+            if (too_big or too_risky) and allowed < entry.qty:
+                why = (f"it is {x['weightPct']:g}% of your capital (limit {settings.maxPositionPct:g}%)" if too_big
+                       else f"hitting your stop would cost {x['riskPct']:g}% of your capital (rule {settings.riskPct:g}%)")
+                return _act("Trim", "sell", f"Too much in one stock: {why}. Sell {entry.qty - allowed:,.0f} to get back within your rules.",
+                            shares=int(entry.qty - allowed))
+        if stop is None:
+            z = e.get("sizing") or {}
+            hint = f" The chart suggests about {f(z['stop'])}." if z.get("stop") else ""
+            return _act("Set stop", "caution", f"Nothing says sell, but you have no stop-loss. Set one now.{hint}")
+        if e.get("toStopPct") is not None and abs(e["toStopPct"]) <= NEAR_STOP_PCT:
+            return _act("Watch closely", "caution", f"Only {abs(e['toStopPct']):.1f}% above your stop ({f(stop)}). Be ready to exit if it closes below.")
+        extra = _room_to_add(entry, last, settings)
+        if entry.expectation == "bullish" and target and extra and (target - last) >= (last - stop):
+            return _act("Add more", "buy", f"Your view is still bullish, your target ({f(target)}) offers more than your stop risks, "
+                                           f"and your rules allow up to {extra:,} more shares.", shares=extra)
+        between = f"between your stop ({f(stop)})" + (f" and target ({f(target)})" if target else "")
+        return _act("Hold", "hold", f"The price is {between}. Your plan says stay in.")
+
+    # watching
+    if entry.expectation != "bullish":
+        return _act("Watch", "wait", "Your view isn't bullish, so there's no reason to buy yet.")
+    if stop is not None and last <= stop:
+        return _act("Wait", "wait", f"The price is already below your stop level ({f(stop)}); your idea isn't working yet.")
+    if target is not None and last >= target:
+        return _act("Wait", "wait", f"The price is already at your target ({f(target)}), so your plan has no upside left.")
+    z = e.get("sizing") or {}
+    if target is not None and z.get("stop") and last > z["stop"]:
+        rr = (target - last) / (last - z["stop"])
+        if rr < 1:
+            return _act("Wait for dip", "wait", f"Your target gains less ({f(target - last)}/share) than the stop risks ({f(last - z['stop'])}/share). Wait for a better price.")
+    if z.get("ok"):
+        whose = "your stop" if z.get("stopSource") == "yours" else "a stop"
+        return _act("Buy", "buy", f"Your view is bullish. Buy up to {z['shares']:,} shares with {whose} at {f(z['stop'])}; "
+                                  f"that risks {z['riskPct']:g}% of your capital.", shares=z["shares"])
+    if z.get("configured") is False:
+        return _act("Buy", "buy", "Your view is bullish. Set your capital in My money & rules to see how many shares.")
+    if z.get("reason", "").startswith("An index"):
+        return _act("Buy via fund", "buy", "Your view is bullish. An index is bought through a fund that tracks it.")
+    if "Even one share" in z.get("reason", "") or "One share costs" in z.get("reason", ""):
+        return _act("Wait", "wait", z["reason"])
+    return _act("Buy", "buy", f"Your view is bullish. {z.get('reason', '')}".strip())
+
+
 
 
 def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
@@ -276,7 +370,13 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
                                   "text": f"Hitting your stop would cost {x['riskPct']:g}% of your capital; your rule is {settings.riskPct:g}%."})
 
     count = lambda k, v: sum(1 for e in entries if e.get(k) == v)
+    todo: dict[str, list[str]] = {"buy": [], "hold": [], "sell": [], "wait": []}
+    for e in entries:
+        a = e.get("action")
+        if a:
+            todo[a["group"].lower()].append(e["symbol"])
     return {
+        "todo": todo,
         "risk": risk,
         "count": len(entries),
         "holding": len(held),
