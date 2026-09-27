@@ -9,17 +9,28 @@ import math
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 from typing import Literal, Optional
 
+import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
-from . import backtest
+from . import backtest, backup
+from .data import fetch_actions, fetch_ohlcv
 from .screener import _scan_one
 from .sizing import position_risk, size_position
 
 DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "profile.json"
 _lock = threading.Lock()
+
+
+class Trade(BaseModel):
+    date: date
+    side: Literal["buy", "sell"]
+    qty: float = Field(..., gt=0)
+    price: float = Field(..., gt=0)
+    fees: Optional[float] = Field(None, ge=0)  # from the contract note; estimated from my cost % when empty
 
 
 class Entry(BaseModel):
@@ -32,6 +43,8 @@ class Entry(BaseModel):
     stop: Optional[float] = Field(None, gt=0)
     horizon: str = Field("", max_length=40)
     note: str = Field("", max_length=500)
+    since: Optional[date] = None  # buy date: bonus shares and dividends after it are counted
+    trades: list[Trade] = []  # when present, quantity / cost / dates come from these instead
 
     @field_validator("symbol")
     @classmethod
@@ -45,6 +58,22 @@ class Settings(BaseModel):
     currency: str = Field("EGP", min_length=1, max_length=8)
     riskPct: float = Field(1.0, gt=0, le=10)  # max loss per trade, % of capital
     maxPositionPct: float = Field(25.0, gt=0, le=100)  # max size of one stock, % of capital
+    # Costs & taxes. Placeholders: rates differ by broker and change with the law, so check a contract note.
+    feePct: float = Field(0.2, ge=0, le=5)  # per side: brokerage + exchange + clearing + stamp duty
+    dividendTaxPct: float = Field(10.0, ge=0, le=100)
+    gainsTaxPct: float = Field(0.0, ge=0, le=100)
+    # Liquidity
+    maxAdtvPct: float = Field(5.0, gt=0, le=100)  # never more than this share of a normal day's trading
+    minAdtv: float = Field(1_000_000, ge=0)  # below this daily traded value a stock counts as thinly traded
+    tickSize: float = Field(0.01, gt=0, le=10)  # price step for limit orders; check your broker's rules
+    # Alerts
+    alertsOn: bool = False
+    telegramToken: str = Field("", max_length=200)
+    telegramChatId: str = Field("", max_length=40)
+    alertEveryMin: int = Field(15, ge=5, le=240)
+    holidays: list[date] = []
+    # Backup: an extra folder for a daily copy (e.g. inside OneDrive); data/backups is always used
+    backupDir: str = Field("", max_length=300)
 
     @field_validator("currency")
     @classmethod
@@ -73,8 +102,19 @@ def save(profile: Profile) -> None:
     p = _path()
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(profile.model_dump(), indent=2), encoding="utf-8")
+    tmp.write_text(profile.model_dump_json(indent=2), encoding="utf-8")
     tmp.replace(p)
+    backup.snapshot(p, profile.settings.backupDir)
+
+
+def backups() -> dict:
+    return backup.listing(_path())
+
+
+def restore_backup(name: str) -> Profile:
+    with _lock:
+        backup.restore(_path(), name, Profile.model_validate)
+        return load()
 
 
 def set_name(name: str) -> Profile:
@@ -88,12 +128,28 @@ def set_name(name: str) -> Profile:
 def set_settings(settings: Settings) -> Profile:
     with _lock:
         prof = load()
+        if not settings.telegramToken:  # the page never sees the token, so empty means "keep it"
+            settings.telegramToken = prof.settings.telegramToken
+        elif settings.telegramToken.strip().lower() == "clear":
+            settings.telegramToken = ""
         prof.settings = settings
         save(prof)
     return prof
 
 
-def sizing_for(settings: Settings, currency: str | None, entry: float, stop: float | None) -> dict:
+def public_settings(settings: Settings) -> dict:
+    """Settings as the page may see them: the Telegram token is replaced by a flag."""
+    d = settings.model_dump(mode="json")
+    d["hasTelegramToken"] = bool(d.pop("telegramToken"))
+    return d
+
+
+def public(prof: Profile) -> dict:
+    return prof.model_dump(mode="json") | {"settings": public_settings(prof.settings)}
+
+
+def sizing_for(settings: Settings, currency: str | None, entry: float, stop: float | None,
+               adtv: float | None = None) -> dict:
     """How much to buy at `entry` with `stop`, under my rules; explains when it can't be sized."""
     if not settings.capital:
         return {"ok": False, "configured": False, "reason": "Set your capital in My profile to see position sizes."}
@@ -103,16 +159,112 @@ def sizing_for(settings: Settings, currency: str | None, entry: float, stop: flo
         return {"ok": False, "configured": True, "reason": f"Your capital is in {settings.currency}; this is priced in {currency}."}
     if stop is None:
         return {"ok": False, "configured": True, "reason": "Needs a stop-loss price to size the position."}
+    max_shares = int(adtv * settings.maxAdtvPct / 100 / entry) if adtv else None
     return {"configured": True, "currency": settings.currency} | size_position(
-        settings.capital, settings.riskPct, settings.maxPositionPct, entry, stop)
+        settings.capital, settings.riskPct, settings.maxPositionPct, entry, stop, settings.feePct, max_shares)
 
 
 def upsert(entry: Entry) -> Profile:
     with _lock:
         prof = load()
+        old = next((e for e in prof.entries if e.symbol == entry.symbol), None)
+        if old and not entry.trades:
+            entry.trades = old.trades
         prof.entries = [e for e in prof.entries if e.symbol != entry.symbol] + [entry]
         save(prof)
     return prof
+
+
+def add_trade(symbol: str, trade: Trade) -> Profile | None:
+    with _lock:
+        prof = load()
+        e = next((e for e in prof.entries if e.symbol == symbol.strip().upper()), None)
+        if e is None:
+            return None
+        e.trades = sorted(e.trades + [trade], key=lambda t: t.date)
+        save(prof)
+    return prof
+
+
+def remove_trade(symbol: str, index: int) -> Profile | None:
+    with _lock:
+        prof = load()
+        e = next((e for e in prof.entries if e.symbol == symbol.strip().upper()), None)
+        if e is None or not 0 <= index < len(e.trades):
+            return None
+        del e.trades[index]
+        save(prof)
+    return prof
+
+
+def ledger(trades: list[Trade], actions: list[dict] | None, settings: Settings, fx=None) -> dict:
+    """Replay my trades with bonus shares, splits and dividends in date order (average-cost method).
+
+    Same-day order: dividends and bonus shares first (they belong to whoever held before the ex-date),
+    then my trades. Yahoo's dividends are per share after later splits, so each one is scaled back
+    by the splits that came after it to get what was actually paid per share I held then.
+    """
+    f, dtax, gtax = settings.feePct / 100, settings.dividendTaxPct / 100, settings.gainsTaxPct / 100
+    actions = actions or []
+    later_splits = lambda d: math.prod(a["split"] for a in actions if a["date"] > d and a["split"] > 0)
+    events = [(a["date"], 0, a) for a in actions] + [(t.date.isoformat(), 1, t) for t in trades]
+    qty = cost = px = realized = fees = divs = cost_usd = 0.0  # cost includes buy fees; px is price only
+    years: dict[str, dict] = {}
+    applied, warnings = [], []
+    first = trades[0].date.isoformat() if trades else None
+    year = lambda d: years.setdefault(d[:4], {"year": d[:4], "realized": 0.0, "dividends": 0.0, "fees": 0.0})
+    for d, _, ev in sorted(events, key=lambda x: (x[0], x[1])):
+        if isinstance(ev, Trade):
+            fee = ev.fees if ev.fees is not None else ev.qty * ev.price * f
+            fees += fee
+            year(d)["fees"] += fee
+            if ev.side == "buy":
+                qty += ev.qty
+                cost += ev.qty * ev.price + fee
+                px += ev.qty * ev.price
+                if fx:
+                    cost_usd += (ev.qty * ev.price + fee) / fx(d)
+            else:
+                q = min(ev.qty, qty)
+                if q < ev.qty:
+                    warnings.append(f"Sell of {ev.qty:g} on {d} is more than the {qty:g} held; counted as {q:g}.")
+                if q <= 0:
+                    continue
+                basis = cost / qty * q
+                gain = q * ev.price - fee - basis
+                gain = gain * (1 - gtax) if gain > 0 else gain
+                realized += gain
+                year(d)["realized"] += gain
+                cost -= basis
+                px -= px / qty * q
+                cost_usd -= cost_usd / qty * q
+                qty -= q
+                if qty < 1e-6:  # sold out: clear rounding dust
+                    qty = cost = px = cost_usd = 0.0
+        elif first and d > first and qty > 0:  # corporate action while I held shares
+            if ev["split"] > 0:
+                qty = round(qty * ev["split"], 6)
+                applied.append({"date": d, "kind": "bonus" if ev["split"] > 1 else "split", "ratio": ev["split"]})
+            if ev["dividend"] > 0:
+                paid = ev["dividend"] * later_splits(d) * qty * (1 - dtax)
+                divs += paid
+                year(d)["dividends"] += paid
+                applied.append({"date": d, "kind": "dividend", "perShare": round(ev["dividend"] * later_splits(d), 4)})
+    rnd = lambda x: round(x, 2)
+    return {
+        "qty": round(qty, 4),
+        # average price per share *excluding* buy costs (net P/L adds costs back); 0 shares -> closed
+        "avgCost": round(px / qty, 4) if qty > 0 else None,
+        "costBasis": rnd(cost),
+        "costUsd": rnd(cost_usd) if fx else None,
+        "first": first,
+        "realized": rnd(realized),
+        "fees": rnd(fees),
+        "dividends": rnd(divs),
+        "events": applied,
+        "years": [{k: (rnd(v) if k != "year" else v) for k, v in y.items()} for y in sorted(years.values(), key=lambda y: y["year"])],
+        "warnings": warnings,
+    }
 
 
 def remove(symbol: str) -> bool:
@@ -136,19 +288,111 @@ def _pct(a: float, b: float) -> float:
     return round((a - b) / b * 100, 2)
 
 
-def compare(entry: Entry, live: dict, track: dict | None = None, settings: Settings | None = None) -> dict:
+def corporate(entry: Entry, actions: list[dict] | None, dividend_tax_pct: float = 0.0) -> dict:
+    """Bonus shares / splits and dividends since my buy date, applied to what I hold (long only).
+
+    Yahoo's prices are split-adjusted and its dividends are per current share, so after
+    multiplying my quantity by the split factor, dividend x quantity is what was actually paid.
+    """
+    none = {"factor": 1.0, "events": [], "dividends": 0.0, "dividendsGross": 0.0, "needsDate": False}
+    if entry.position != "long" or not actions:
+        return none
+    if entry.since is None:
+        return none | {"needsDate": True}
+    since = entry.since.isoformat()
+    after = [a for a in actions if a["date"] > since]
+    factor = math.prod(a["split"] for a in after if a["split"] > 0)
+    qty = (entry.qty or 0) * factor
+    gross = sum(a["dividend"] for a in after) * qty
+    events = [{"date": a["date"], "kind": "bonus" if a["split"] > 1 else "split", "ratio": a["split"]}
+              for a in after if a["split"] > 0]
+    events += [{"date": a["date"], "kind": "dividend", "perShare": a["dividend"]} for a in after if a["dividend"] > 0]
+    return {
+        "factor": round(factor, 6),
+        "events": sorted(events, key=lambda e: e["date"]),
+        "dividendsGross": round(gross, 2),
+        "dividends": round(gross * (1 - dividend_tax_pct / 100), 2),
+        "needsDate": False,
+    }
+
+
+def _net_per_share(side: str, avg: float, last: float, fee: float, gains_tax: float) -> float:
+    """Profit per share if closed now, after buying and selling costs and (on a gain) the gains tax."""
+    gain = last * (1 - fee) - avg * (1 + fee) if side == "long" else avg * (1 - fee) - last * (1 + fee)
+    return gain * (1 - gains_tax) if gain > 0 else gain
+
+
+def usd_rates() -> pd.Series | None:
+    """EGP per USD, daily (Yahoo, else TradingView); None when neither answers."""
+    for code in ("USDEGP=X", "FX_IDC:USDEGP"):
+        try:
+            _, df, _ = fetch_ohlcv(code, "1d", "10y")
+        except Exception:
+            continue
+        c = df["Close"]
+        c.index = c.index.tz_localize(None) if c.index.tz is not None else c.index
+        return c
+    return None
+
+
+def fx_lookup(rates: pd.Series):
+    """fx(date) -> EGP per USD on or just before that date; fx(None) -> latest."""
+    def fx(d=None) -> float:
+        if d is None:
+            return float(rates.iloc[-1])
+        before = rates[: pd.Timestamp(d)]
+        return float(before.iloc[-1] if len(before) else rates.iloc[0])
+    return fx
+
+
+def usd_view(eff: Entry, journal: dict | None, last: float, currency: str | None, settings: Settings, fx) -> dict | None:
+    """The same holding measured in dollars: what I paid at the rate back then vs what it's worth now."""
+    if fx is None or currency != "EGP" or eff.position != "long" or not eff.qty or not eff.since or not eff.avgCost:
+        return None
+    f = settings.feePct / 100
+    now, then = fx(None), fx(eff.since)
+    cost = journal["costUsd"] if journal and journal.get("costUsd") else eff.qty * eff.avgCost * (1 + f) / then
+    value = eff.qty * last * (1 - f) / now
+    return {
+        "rateThen": round(then, 3), "rateNow": round(now, 3),
+        "costUsd": round(cost, 2), "valueUsd": round(value, 2), "plUsd": round(value - cost, 2),
+        "plUsdPct": round((value / cost - 1) * 100, 2) if cost else None,
+        "egpChangePct": round((then / now - 1) * 100, 2),  # negative: the pound lost value against the dollar
+    }
+
+
+def compare(entry: Entry, live: dict, track: dict | None = None, settings: Settings | None = None,
+            actions: list[dict] | None = None, fx=None) -> dict:
     """Merge my entry with the live scan row: P/L, distance to my levels, and whether the chart agrees."""
-    out = entry.model_dump()
+    settings = settings or Settings()
+    out = entry.model_dump(mode="json")
     if "error" in live:
         return out | {"error": live["error"]}
     last = live["last"]
-    sign = {"long": 1, "short": -1}.get(entry.position, 0)
+    journal = None
+    if entry.trades:
+        # My trades decide what I hold; a fully sold position becomes a watch entry.
+        journal = ledger(entry.trades, actions, settings, fx)
+        held = journal["qty"] > 0
+        eff = entry.model_copy(update={"position": "long" if held else "none", "qty": journal["qty"] if held else None,
+                                       "avgCost": journal["avgCost"], "since": date.fromisoformat(journal["first"])})
+        corp = {"factor": 1.0, "events": journal["events"], "dividends": journal["dividends"],
+                "dividendsGross": None, "needsDate": False}
+    else:
+        corp = corporate(entry, actions, settings.dividendTaxPct)
+        # Work on my position as it is today: bonus shares raise the quantity and lower the cost per share.
+        eff = entry
+        if corp["factor"] != 1 and entry.qty:
+            eff = entry.model_copy(update={"qty": entry.qty * corp["factor"],
+                                           "avgCost": entry.avgCost / corp["factor"] if entry.avgCost else None})
+    sign = {"long": 1, "short": -1}.get(eff.position, 0)
     view = _app_view(live["score"])
+    fee, gtax = settings.feePct / 100, settings.gainsTaxPct / 100
 
     status = "open"
     # Which way my target/stop point: a held position's stop protects the position; when only
     # watching, they follow my expectation.
-    up = entry.position == "long" or (entry.position == "none" and entry.expectation != "bearish")
+    up = eff.position == "long" or (eff.position == "none" and entry.expectation != "bearish")
     # A passed stop outranks a reached target: it's the one that needs action.
     if entry.stop is not None and (last <= entry.stop if up else last >= entry.stop):
         status = "stop hit"
@@ -162,14 +406,34 @@ def compare(entry: Entry, live: dict, track: dict | None = None, settings: Setti
     else:
         agreement = "disagrees"
 
+    pl_pct = pl_value = break_even = None
+    if sign and eff.avgCost:
+        side = eff.position
+        per = _net_per_share(side, eff.avgCost, last, fee, gtax)
+        pl_pct = round(per / (eff.avgCost * (1 + fee)) * 100, 2)
+        pl_value = round(per * eff.qty, 2) if eff.qty else None
+        break_even = round(eff.avgCost * (1 + fee) / (1 - fee) if side == "long" else eff.avgCost * (1 - fee) / (1 + fee), 4)
+
+    adtv = live.get("adtv")
     res = out | {
+        "position": eff.position,
+        "since": eff.since.isoformat() if eff.since else None,
+        "journal": journal,
         "resolved": live["symbol"],
         "name": live["name"],
         "currency": live["currency"],
         "last": last,
         "changePct": live["changePct"],
-        "plPct": _pct(last, entry.avgCost) * sign if sign and entry.avgCost else None,
-        "plValue": round((last - entry.avgCost) * entry.qty * sign, 2) if sign and entry.avgCost and entry.qty else None,
+        "adjQty": round(eff.qty, 4) if eff.qty is not None else None,
+        "adjAvgCost": round(eff.avgCost, 4) if eff.avgCost is not None else None,
+        "corporate": corp,
+        "plPct": pl_pct,
+        "plValue": pl_value,
+        "breakEven": break_even,
+        "income": corp["dividends"],
+        "totalReturn": round(pl_value + corp["dividends"], 2) if pl_value is not None else None,
+        "adtv": adtv,
+        "thin": bool(adtv is not None and live["currency"] and adtv < settings.minAdtv),
         "toTargetPct": _pct(entry.target, last) if entry.target else None,
         "toStopPct": _pct(entry.stop, last) if entry.stop else None,
         "status": status,
@@ -181,9 +445,41 @@ def compare(entry: Entry, live: dict, track: dict | None = None, settings: Setti
         "appSignal": live["signal"],
         "agreement": agreement,
         "track": _track_line(track, live["bias"]),
-        **_money(entry, live, settings or Settings()),
+        "usd": usd_view(eff, journal, last, live["currency"], settings, fx),
+        **_money(eff, live, settings),
     }
-    return res | {"action": action_for(entry, res, settings or Settings())}
+    action = action_for(eff, res, settings)
+    return res | {"action": action, "ticket": order_ticket(action, res, settings)}
+
+
+SELL_ALL = {"Cut loss", "Exit (stop)", "Take profit", "Sell"}
+
+
+def order_ticket(action: dict, e: dict, settings: Settings) -> dict | None:
+    """A limit order ready to type into the broker app, for actions that come with a quantity."""
+    tick = settings.tickSize
+    last, f = e["last"], settings.feePct / 100
+    code = e["symbol"].removesuffix(".CA")
+    if action["group"] == "Buy" and action.get("shares"):
+        qty = int(action["shares"])
+        limit = math.ceil(last / tick - 1e-9) * tick
+        stop = (e.get("sizing") or {}).get("stop") if action["action"] == "Buy" else e.get("stop")
+        total = qty * limit * (1 + f)
+        text = f"BUY {qty:,} {code} @ {limit:,.2f} limit · about {total:,.2f} incl. costs"
+    elif action["group"] == "Sell" and e["position"] == "long" and (action.get("shares") or action["action"] in SELL_ALL):
+        qty = int(action.get("shares") or math.floor(e.get("adjQty") or e.get("qty") or 0))
+        if qty < 1:
+            return None
+        limit = math.floor(last / tick + 1e-9) * tick
+        stop = e.get("stop") if action["action"] == "Trim" else None
+        total = qty * limit * (1 - f)
+        text = f"SELL {qty:,} {code} @ {limit:,.2f} limit · about {total:,.2f} after costs"
+    else:
+        return None
+    if stop:
+        text += f" · then watch a stop at {stop:,.2f}"
+    return {"side": "BUY" if action["group"] == "Buy" else "SELL", "symbol": code, "qty": qty,
+            "limit": round(limit, 4), "total": round(total, 2), "stop": stop, "text": text}
 
 
 def _money(entry: Entry, live: dict, settings: Settings) -> dict:
@@ -193,10 +489,10 @@ def _money(entry: Entry, live: dict, settings: Settings) -> dict:
     stop = entry.stop if mine else live.get("chartStop")
     out = {"sizing": None, "exposure": None}
     if entry.position != "short":
-        out["sizing"] = sizing_for(settings, live["currency"], last, stop) | {"stopSource": "yours" if mine else "chart"}
+        out["sizing"] = sizing_for(settings, live["currency"], last, stop, live.get("adtv")) | {"stopSource": "yours" if mine else "chart"}
     same_money = settings.capital and live["currency"] and live["currency"].upper() == settings.currency
     if entry.position != "none" and entry.qty and same_money:
-        out["exposure"] = position_risk(settings.capital, entry.position, entry.qty, last, entry.stop)
+        out["exposure"] = position_risk(settings.capital, entry.position, entry.qty, last, entry.stop, settings.feePct)
     return out
 
 
@@ -221,11 +517,12 @@ def _act(action: str, tone: str, reason: str, **extra) -> dict:
 NEAR_STOP_PCT = 3.0
 
 
-def _room_to_add(entry: Entry, last: float, settings: Settings) -> int:
+def _room_to_add(entry: Entry, last: float, settings: Settings, adtv: float | None = None) -> int:
     """Extra shares my rules still allow on top of what I hold (0 if none or unknown)."""
     if not (settings.capital and entry.qty and entry.stop and entry.stop < last):
         return 0
-    z = size_position(settings.capital, settings.riskPct, settings.maxPositionPct, last, entry.stop)
+    max_shares = int(adtv * settings.maxAdtvPct / 100 / last) if adtv else None
+    z = size_position(settings.capital, settings.riskPct, settings.maxPositionPct, last, entry.stop, settings.feePct, max_shares)
     return max(0, z["shares"] - int(entry.qty)) if z["ok"] else 0
 
 
@@ -271,7 +568,7 @@ def action_for(entry: Entry, e: dict, settings: Settings) -> dict:
             return _act("Set stop", "caution", f"Nothing says sell, but you have no stop-loss. Set one now.{hint}")
         if e.get("toStopPct") is not None and abs(e["toStopPct"]) <= NEAR_STOP_PCT:
             return _act("Watch closely", "caution", f"Only {abs(e['toStopPct']):.1f}% above your stop ({f(stop)}). Be ready to exit if it closes below.")
-        extra = _room_to_add(entry, last, settings)
+        extra = _room_to_add(entry, last, settings, e.get("adtv"))
         if entry.expectation == "bullish" and target and extra and (target - last) >= (last - stop):
             return _act("Add more", "buy", f"Your view is still bullish, your target ({f(target)}) offers more than your stop risks, "
                                            f"and your rules allow up to {extra:,} more shares.", shares=extra)
@@ -309,17 +606,26 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
     """Totals per currency, how often the chart agrees with me, and what needs a look."""
     held = [e for e in entries if e["position"] != "none"]
     books: dict[str, dict] = {}
+    fee = (settings.feePct if settings else Settings().feePct) / 100
     for e in held:
         if e.get("plValue") is None:
             continue
-        cost = e["avgCost"] * e["qty"]
-        b = books.setdefault(e.get("currency") or "", {"currency": e.get("currency") or "", "positions": 0, "cost": 0.0, "pl": 0.0})
+        cost = e["adjAvgCost"] * e["adjQty"] * (1 + fee)
+        b = books.setdefault(e.get("currency") or "", {"currency": e.get("currency") or "", "positions": 0,
+                                                       "cost": 0.0, "pl": 0.0, "income": 0.0})
         b["positions"] += 1
         b["cost"] += cost
         b["pl"] += e["plValue"]
+        b["income"] += e.get("income") or 0.0
+        if e.get("usd"):
+            b["costUsd"] = b.get("costUsd", 0.0) + e["usd"]["costUsd"]
+            b["valueUsd"] = b.get("valueUsd", 0.0) + e["usd"]["valueUsd"]
     by_currency = [
         b | {"cost": round(b["cost"], 2), "pl": round(b["pl"], 2), "value": round(b["cost"] + b["pl"], 2),
-             "plPct": round(b["pl"] / b["cost"] * 100, 2) if b["cost"] else None}
+             "income": round(b["income"], 2),
+             "plPct": round(b["pl"] / b["cost"] * 100, 2) if b["cost"] else None,
+             "totalPct": round((b["pl"] + b["income"]) / b["cost"] * 100, 2) if b["cost"] else None,
+             "usdPct": round((b["valueUsd"] / b["costUsd"] - 1) * 100, 2) if b.get("costUsd") else None}
         for b in sorted(books.values(), key=lambda b: -b["cost"])
     ]
 
@@ -337,6 +643,12 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
             attention.append({"symbol": s, "kind": "target", "text": f"Reached your target ({e['target']:g})."})
         elif e["position"] != "none" and e.get("toStopPct") is not None and abs(e["toStopPct"]) <= NEAR_STOP_PCT:
             attention.append({"symbol": s, "kind": "near-stop", "text": f"Within {abs(e['toStopPct']):.1f}% of your stop ({e['stop']:g})."})
+        if e.get("thin") and e["position"] != "none":
+            attention.append({"symbol": s, "kind": "thin",
+                              "text": f"Thinly traded (about {e['adtv']:,.0f} a day), so selling quickly could move the price."})
+        if (e.get("corporate") or {}).get("needsDate"):
+            attention.append({"symbol": s, "kind": "date",
+                              "text": "Add your buy date so bonus shares and dividends are counted in your P/L."})
         if e["position"] != "none" and e.get("agreement") == "disagrees":
             attention.append({"symbol": s, "kind": "disagree",
                               "text": f"You hold it expecting {e['expectation']}, but the chart reads {e['appBias'].lower()}."})
@@ -369,6 +681,17 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
                 attention.append({"symbol": s, "kind": "risk",
                                   "text": f"Hitting your stop would cost {x['riskPct']:g}% of your capital; your rule is {settings.riskPct:g}%."})
 
+    ledgers: dict[tuple[str, str], dict] = {}
+    for e in entries:
+        j = e.get("journal")
+        for y in (j or {}).get("years", []):
+            g = ledgers.setdefault((e.get("currency") or "", y["year"]),
+                                   {"currency": e.get("currency") or "", "year": y["year"], "realized": 0.0, "dividends": 0.0, "fees": 0.0})
+            for k in ("realized", "dividends", "fees"):
+                g[k] += y[k]
+    years = sorted(({k: (round(v, 2) if isinstance(v, float) else v) for k, v in g.items()} for g in ledgers.values()),
+                   key=lambda g: (g["year"], g["currency"]), reverse=True)
+
     count = lambda k, v: sum(1 for e in entries if e.get(k) == v)
     todo: dict[str, list[str]] = {"buy": [], "hold": [], "sell": [], "wait": []}
     for e in entries:
@@ -376,6 +699,7 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
         if a:
             todo[a["group"].lower()].append(e["symbol"])
     return {
+        "years": years,
         "todo": todo,
         "risk": risk,
         "count": len(entries),
@@ -390,11 +714,22 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
     }
 
 
+def _actions_for(entry: Entry, row: dict) -> list[dict]:
+    # Only held stocks need them (indices have none, and Yahoo logs noise when asked).
+    if (entry.position != "long" and not entry.trades) or "error" in row or not row.get("currency"):
+        return []
+    return fetch_actions(row["symbol"])
+
+
 def live_profile(interval: str, period: str) -> dict:
     prof = load()
     with ThreadPoolExecutor(max_workers=8) as pool:
         rows = list(pool.map(lambda e: _scan_one(e.symbol, interval, period), prof.entries))
-    entries = [compare(e, r, backtest.track_for(r["symbol"], interval) if "error" not in r else None, prof.settings)
-               for e, r in zip(prof.entries, rows)]
-    return {"name": prof.name, "settings": prof.settings.model_dump(), "entries": entries,
+        acts = list(pool.map(_actions_for, prof.entries, rows))
+    need_fx = any(r.get("currency") == "EGP" and (e.position == "long" or e.trades) for e, r in zip(prof.entries, rows))
+    rates = usd_rates() if need_fx else None
+    fx = fx_lookup(rates) if rates is not None else None
+    entries = [compare(e, r, backtest.track_for(r["symbol"], interval) if "error" not in r else None, prof.settings, a, fx)
+               for e, r, a in zip(prof.entries, rows, acts)]
+    return {"name": prof.name, "settings": public_settings(prof.settings), "entries": entries,
             "summary": summarize(entries, prof.settings)}

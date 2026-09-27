@@ -3,7 +3,7 @@
   const state = { entries: [], editing: null, open: new Set() };
   try { state.open = new Set(JSON.parse(localStorage.getItem("profileOpen") || "[]")); } catch (_) {}
   const saveOpen = () => { try { localStorage.setItem("profileOpen", JSON.stringify([...state.open])); } catch (_) {} };
-  const FIELDS = ["symbol", "position", "qty", "avgCost", "expectation", "target", "stop", "horizon", "note"];
+  const FIELDS = ["symbol", "position", "qty", "avgCost", "since", "expectation", "target", "stop", "horizon", "note"];
   const NUMERIC = ["qty", "avgCost", "target", "stop"];
   const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (v) => (v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: Math.abs(v) >= 1 ? 2 : 5 }));
@@ -78,6 +78,22 @@
       </div>`;
   }
 
+  function yearTile(years) {
+    if (!years || !years.length) return "";
+    const y = String(new Date().getFullYear());
+    const now = years.filter((r) => r.year === y);
+    const line = (r) => {
+      const net = r.realized + r.dividends;
+      return `<div class="kv"><span>Realized</span><span class="${cls(r.realized)}">${fmt(r.realized)} ${escapeHtml(r.currency)}</span></div>
+        <div class="kv"><span>Dividends</span><span class="up">${fmt(r.dividends)}</span></div>
+        <div class="kv"><span>Fees paid</span><span>${fmt(r.fees)}</span></div>
+        <div class="kv"><span><b>Net</b></span><b class="${cls(net)}">${fmt(net)}</b></div>`;
+    };
+    const past = years.filter((r) => r.year !== y).map((r) => `${r.year}: ${fmt(r.realized + r.dividends)} ${escapeHtml(r.currency)}`).join(" · ");
+    return `<div class="tile"><h3>${y} so far</h3>${now.length ? now.map(line).join("") : '<div class="muted small">No trades or dividends this year.</div>'}
+      ${past ? `<div class="muted small" style="margin-top:6px">Earlier (realized + dividends): ${past}</div>` : ""}</div>`;
+  }
+
   function renderSummary(s) {
     $("summaryPanel").hidden = !s || !s.count;
     if (!s || !s.count) return;
@@ -87,7 +103,9 @@
           <div class="book">
             <div class="big">${fmt(b.value)} <span class="unit">${escapeHtml(b.currency || "pts")}</span></div>
             <div class="${cls(b.pl)}">${money(b.pl)} (${pct(b.plPct)})</div>
-            <div class="muted small">cost ${fmt(b.cost)} · ${b.positions} position${b.positions === 1 ? "" : "s"}</div>
+            ${b.usdPct != null ? `<div class="small">In USD <b class="${cls(b.usdPct)}">${pct(b.usdPct)}</b></div>` : ""}
+            ${b.income ? `<div class="small">+ dividends <b class="up">${fmt(b.income)}</b> → total <b class="${cls(b.totalPct)}">${pct(b.totalPct)}</b></div>` : ""}
+            <div class="muted small">cost ${fmt(b.cost)} incl. fees · ${b.positions} position${b.positions === 1 ? "" : "s"}</div>
           </div>`).join("")
       : '<div class="muted small">Add a quantity and average cost to your positions to see value and P/L.</div>';
     const perf = (label, p) => (p ? `<div class="kv"><span>${label}</span><span><b>${escapeHtml(p.symbol)}</b> <span class="${cls(p.plPct)}">${pct(p.plPct)}</span></span></div>` : "");
@@ -116,6 +134,7 @@
         ${perf("Best", s.best)}${perf("Worst", s.worst)}
       </div>
       ${riskTile(s.risk)}
+      ${yearTile(s.years)}
       <div class="tile">
         <h3>My views</h3>
         ${breakdown(s.expectation, { bullish: "Bullish", neutral: "Neutral", bearish: "Bearish" })}
@@ -125,7 +144,7 @@
         ${breakdown(s.agreement, { agrees: "Agrees", mixed: "Mixed", disagrees: "Disagrees" })}
       </div>`;
 
-    const icons = { stop: "⛔", target: "🎯", "near-stop": "⚠️", disagree: "✗", error: "?", big: "⚖️", risk: "💸", "no-stop": "🛑" };
+    const icons = { stop: "⛔", target: "🎯", "near-stop": "⚠️", disagree: "✗", error: "?", big: "⚖️", risk: "💸", "no-stop": "🛑", thin: "💧", date: "📅" };
     $("attention").innerHTML = s.attention.length
       ? `<h3>Needs attention <span class="badge">${s.attention.length}</span></h3>
          <ul>${s.attention.map((a) => `<li class="${a.kind}"><span class="ic">${icons[a.kind] || "•"}</span><a href="#" data-goto="${escapeHtml(a.symbol)}">${escapeHtml(a.symbol)}</a> ${escapeHtml(a.text)}</li>`).join("")}</ul>`
@@ -164,10 +183,81 @@
     return `<div class="track-line" title="From the Track record page">📊 After past <b>${escapeHtml(t.bias)}</b> readings here (${t.n}${t.small ? ", few" : ""}): ${what}. <a href="/track">Details</a></div>`;
   }
 
-  const SETTINGS = ["capital", "currency", "riskPct", "maxPositionPct"];
+  const SETTINGS = ["capital", "currency", "riskPct", "maxPositionPct", "maxAdtvPct", "feePct", "dividendTaxPct",
+    "gainsTaxPct", "minAdtv", "tickSize", "telegramChatId", "alertEveryMin", "backupDir"];
   function fillSettings(st) {
     if (!st || $("settingsForm").contains(document.activeElement)) return;
     for (const k of SETTINGS) $(`s-${k}`).value = st[k] ?? "";
+    $("s-alertsOn").checked = !!st.alertsOn;
+    $("s-holidays").value = (st.holidays || []).join(", ");
+    $("s-telegramToken").value = "";
+    $("s-telegramToken").placeholder = st.hasTelegramToken ? "saved ✓ (leave empty to keep)" : "from @BotFather";
+    $("costsSummary").textContent = `${st.feePct}% per trade · ${st.dividendTaxPct}% dividend tax`;
+    $("alertsSummary").textContent = st.alertsOn ? (st.hasTelegramToken && st.telegramChatId ? "on" : "on, not set up yet") : "off";
+  }
+
+  // Phone app: a QR code that opens the app on the phone, already logged in (phone mode only).
+  function loadScript(src) {
+    return new Promise((ok, fail) => {
+      const el = document.createElement("script");
+      el.src = src;
+      el.onload = ok;
+      el.onerror = fail;
+      document.head.appendChild(el);
+    });
+  }
+
+  async function refreshPhone() {
+    let p;
+    try { p = await api("/api/phone"); } catch (_) { $("phoneGroup").hidden = true; return; } // opened from the phone itself
+    $("phoneSummary").textContent = p.lan ? "on" : "off";
+    if (!p.lan) {
+      $("phoneBody").innerHTML = `<p class="muted small">Phone access is off: the app only answers on this computer.
+        It's switched on when the app runs in the background with <code>--lan</code> (the Windows auto-start does this).
+        Your phone must be on the same Wi-Fi as this computer.</p>`;
+      return;
+    }
+    $("phoneBody").innerHTML = `
+      <div class="phone-row">
+        <div id="qr" class="qr" aria-label="QR code"></div>
+        <ol class="muted small setup-steps">
+          <li>Connect your phone to the <b>same Wi-Fi</b> as this computer.</li>
+          <li>Scan this code with the phone camera. It opens the app and remembers the phone (no password to type).</li>
+          <li><b>Android</b> (Chrome): menu ⋮ → <b>Add to Home screen</b>. <b>iPhone</b> (Safari): Share → <b>Add to Home Screen</b>.</li>
+          <li>This computer must be on and the app running; the phone reaches it at <code>${escapeHtml(p.base)}</code>.</li>
+        </ol>
+      </div>
+      <p class="muted small">The code contains your access key, so don't share it. To change the key, delete <code>data/access_key.txt</code> and restart the app.</p>`;
+    try {
+      if (!window.qrcode) await loadScript("https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js");
+      const qr = window.qrcode(0, "M");
+      qr.addData(p.url);
+      qr.make();
+      $("qr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    } catch (_) {
+      $("qr").innerHTML = `<div class="muted small">Couldn't draw the QR code. Open this address on the phone instead:<br><code>${escapeHtml(p.url)}</code></div>`;
+    }
+  }
+
+  async function refreshBackups() {
+    try {
+      const b = await api("/api/backups");
+      $("backupFolder").textContent = b.folder;
+      $("backupList").innerHTML = b.files.map((f) => `<option value="${escapeHtml(f.name)}">${escapeHtml(f.name.replace("profile-", "").replace(".json", ""))} · saved ${new Date(f.saved).toLocaleString()}</option>`).join("")
+        || "<option value=''>No copies yet</option>";
+      $("backupSummary").textContent = b.files.length ? `${b.files.length} copies · latest ${new Date(b.files[0].saved).toLocaleDateString()}` : "";
+      $("backupStatus").innerHTML = b.error ? `<span class="down">${escapeHtml(b.error)}</span>` : "";
+    } catch (_) {}
+  }
+
+  async function refreshAlertStatus() {
+    try {
+      const a = await api("/api/alerts/status");
+      const t = (iso) => (iso ? new Date(iso).toLocaleString() : "never");
+      $("alertStatus").innerHTML = a.lastError
+        ? `<span class="down">Last problem: ${escapeHtml(a.lastError)}</span>`
+        : `Last check: ${t(a.lastCheck)} · last message: ${t(a.lastSent)}${a.inSession ? " · market open" : " · market closed"}`;
+    } catch (_) {}
   }
 
   // What to buy (watching) or what the position means for the account (holding).
@@ -194,12 +284,58 @@
       Buy up to <b>${z.shares.toLocaleString()} shares</b> (about ${fmt(z.cost)} ${cur}, ${z.costPct}% of your capital),
       with ${whose} at <b class="stp">${fmt(z.stop)}</b> (${pct(z.stopPct)}).
       If it's hit you lose about <b class="down">${fmt(z.risk)} ${cur}</b> (${z.riskPct}% of your capital).
-      ${z.limitedBy === "size" ? `<div class="muted small">Capped by your limit per stock; the stop is close, so the risk is below your maximum.</div>` : ""}</div>`;
+      ${z.limitedBy === "size" ? `<div class="muted small">Capped by your limit per stock; the stop is close, so the risk is below your maximum.</div>` : ""}
+      ${z.limitedBy === "liquidity" ? `<div class="muted small">💧 Capped by liquidity: the stock trades about ${fmt(e.adtv)} a day, and you allow at most your set share of that.</div>` : ""}
+      ${z.feePct ? `<div class="muted small">Includes ${z.feePct}% costs on the buy and on the sell.</div>` : ""}</div>`;
+  }
+
+  // Bonus shares / splits since the buy date, and a nudge when the date is missing.
+  function corpLines(e) {
+    const c = e.corporate;
+    if (!c) return "";
+    if (c.needsDate) return '<div class="corp muted small">📅 Add your buy date (Edit) so bonus shares and dividends are counted.</div>';
+    const splits = (c.events || []).filter((x) => x.kind !== "dividend");
+    if (!splits.length) return "";
+    const what = splits.map((x) => (x.kind === "bonus" ? `+${Math.round((x.ratio - 1) * 100)}% bonus shares` : `${x.ratio}:1 split`) + ` on ${x.date}`).join(", ");
+    return `<div class="corp small">Now <b>${fmt(e.adjQty)}</b> shares @ <b>${fmt(e.adjAvgCost)}</b>, adjusted for ${escapeHtml(what)}.</div>`;
+  }
+
+  // The same holding in dollars: separates a real gain from the pound losing value.
+  function usdLine(u) {
+    if (!u) return "";
+    const pound = u.egpChangePct < 0 ? `the pound fell ${Math.abs(u.egpChangePct).toFixed(1)}%` : `the pound rose ${u.egpChangePct.toFixed(1)}%`;
+    return `<div class="kv" title="Bought at ${u.rateThen} EGP per USD, now ${u.rateNow}"><span>In USD</span><span class="${cls(u.plUsdPct)}">${pct(u.plUsdPct)}</span></div>
+      <div class="muted small">${pound} against the dollar since you bought</div>`;
+  }
+
+  const today = () => new Date().toISOString().slice(0, 10);
+  function tradesBlock(e) {
+    const j = e.journal;
+    const rows = (e.trades || []).map((t, i) => `
+      <tr><td>${escapeHtml(t.date)}</td><td class="${t.side === "buy" ? "up" : "down"}">${t.side.toUpperCase()}</td>
+        <td class="num">${fmt(t.qty)} @ ${fmt(t.price)}</td><td class="num muted">${t.fees != null ? `fees ${fmt(t.fees)}` : "est. fees"}</td>
+        <td><button type="button" class="x" data-act="del-trade" data-i="${i}" title="Delete this trade">×</button></td></tr>`).join("");
+    const sums = j ? `<div class="muted small">Fees paid ${fmt(j.fees)}${j.dividends ? ` · dividends ${fmt(j.dividends)}` : ""}${j.realized ? ` · realized ${j.realized > 0 ? "+" : ""}${fmt(j.realized)}` : ""}</div>` : "";
+    const warn = (j?.warnings || []).map((w) => `<div class="thin-note">⚠ ${escapeHtml(w)}</div>`).join("");
+    return `<div class="card-block trades"><h3>Trades ${e.trades?.length ? "" : '<span class="muted small">(optional: record buys and sells for exact P/L)</span>'}</h3>
+      ${rows ? `<table class="trade-list"><tbody>${rows}</tbody></table>` : ""}
+      ${sums}${warn}
+      <form class="trade-form" autocomplete="off">
+        <input name="date" type="date" value="${today()}" required />
+        <select name="side"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+        <input name="qty" type="number" min="0" step="any" placeholder="Qty" required />
+        <input name="price" type="number" min="0" step="any" placeholder="Price" required />
+        <input name="fees" type="number" min="0" step="any" placeholder="Fees (optional)" title="From the contract note; leave empty to estimate" />
+        <button type="submit">Add trade</button>
+      </form>
+      ${e.trades?.length ? '<div class="muted small">Quantity, average cost and buy date now come from these trades.</div>' : ""}</div>`;
   }
 
   function card(e) {
     const posText = e.position === "none"
       ? '<span class="muted">No position (watching)</span>'
+      : e.trades?.length
+      ? `<b>${cap(e.position)}</b> ${fmt(e.adjQty)} @ ${fmt(e.adjAvgCost)} <span class="muted small">from ${e.trades.length} trade${e.trades.length === 1 ? "" : "s"}</span>`
       : `<b>${cap(e.position)}</b>${e.qty != null ? ` ${fmt(e.qty)}` : ""}${e.avgCost != null ? ` @ ${fmt(e.avgCost)}` : ""}`;
     const pl = e.plPct != null
       ? `<div class="kv"><span>P/L</span><span class="${cls(e.plPct)}">${pct(e.plPct)}${e.plValue != null ? ` (${e.plValue > 0 ? "+" : ""}${fmt(e.plValue)})` : ""}</span></div>` : "";
@@ -223,7 +359,7 @@
 
     const open = state.open.has(e.symbol);
     const mini = [
-      e.position === "none" ? "Watching" : `${cap(e.position)}${e.qty != null ? ` ${fmt(e.qty)}` : ""}${e.avgCost != null ? ` @ ${fmt(e.avgCost)}` : ""}`,
+      e.position === "none" ? "Watching" : `${cap(e.position)}${e.qty != null ? ` ${fmt(e.adjQty ?? e.qty)}` : ""}${e.avgCost != null ? ` @ ${fmt(e.adjAvgCost ?? e.avgCost)}` : ""}`,
       e.plPct != null ? `<span class="${cls(e.plPct)}">${pct(e.plPct)}</span>` : "",
       e.stop != null ? `stop <b class="stp">${fmt(e.stop)}</b>${e.toStopPct != null ? ` <span class="muted">${pct(e.toStopPct)}</span>` : ""}` : "",
       e.target != null ? `target <b class="tgt">${fmt(e.target)}</b>${e.toTargetPct != null ? ` <span class="muted">${pct(e.toTargetPct)}</span>` : ""}` : "",
@@ -243,6 +379,7 @@
           </div>
         </header>
         ${e.action ? `<div class="action-bar ${e.action.tone}"><b>${escapeHtml(e.action.group)}:</b> ${escapeHtml(e.action.reason)}</div>` : ""}
+        ${e.ticket ? `<div class="ticket"><span class="ticket-text">📋 ${escapeHtml(e.ticket.text)}</span><button type="button" data-act="copy" data-text="${escapeHtml(e.ticket.text)}">Copy</button></div>` : ""}
         <div class="card-mini">${mini}</div>
         <div class="card-details">
         <div class="tags">${agreeTag}${statusTag}</div>
@@ -250,7 +387,14 @@
           <div class="card-block">
             <h3>My position</h3>
             <div>${posText}</div>
+            ${corpLines(e)}
             ${pl}
+            ${e.breakEven != null ? `<div class="kv"><span>Break-even</span><span title="Price that covers your buying and selling costs">${fmt(e.breakEven)}</span></div>` : ""}
+            ${e.income ? `<div class="kv"><span>Dividends</span><span class="up">+${fmt(e.income)}</span></div>
+              <div class="kv"><span>Total return</span><span class="${cls(e.totalReturn)}">${e.totalReturn > 0 ? "+" : ""}${fmt(e.totalReturn)}</span></div>` : ""}
+            ${e.journal && (e.journal.realized || e.journal.fees) ? `<div class="kv"><span>Realized</span><span class="${cls(e.journal.realized)}">${e.journal.realized > 0 ? "+" : ""}${fmt(e.journal.realized)}</span></div>` : ""}
+            ${usdLine(e.usd)}
+            ${e.thin ? `<div class="thin-note">💧 Thinly traded: about ${fmt(e.adtv)} a day.</div>` : ""}
           </div>
           <div class="card-block">
             <h3>My expectation</h3>
@@ -261,6 +405,7 @@
           </div>
           ${live}
           ${e.error ? "" : moneyBlock(e)}
+          ${e.error ? "" : tradesBlock(e)}
         </div>
         ${e.note ? `<p class="note">${escapeHtml(e.note)}</p>` : ""}
         <footer class="card-actions">
@@ -279,6 +424,11 @@
       el.value = e ? e[k] ?? "" : { position: "none", expectation: "neutral" }[k] ?? "";
     }
     $("f-symbol").readOnly = !!e;
+    const fromTrades = !!(e && e.trades && e.trades.length); // position comes from the trade list then
+    for (const k of ["position", "qty", "avgCost", "since"]) {
+      $(`f-${k}`).disabled = fromTrades;
+      $(`f-${k}`).title = fromTrades ? "Set by this asset's trades" : "";
+    }
     $("formTitle").textContent = e ? `Edit ${e.symbol}` : "Add an index or stock";
     $("cancelEdit").hidden = !e;
     if (e) $("entryForm").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -289,7 +439,7 @@
     const entry = {};
     for (const k of FIELDS) {
       const v = $(`f-${k}`).value.trim();
-      entry[k] = NUMERIC.includes(k) ? (v === "" ? null : Number(v)) : v;
+      entry[k] = NUMERIC.includes(k) ? (v === "" ? null : Number(v)) : k === "since" ? v || null : v;
     }
     const btn = ev.submitter || $("entryForm").querySelector("button[type=submit]");
     btn.disabled = true;
@@ -306,22 +456,57 @@
 
   $("cancelEdit").addEventListener("click", () => fillForm(null));
 
+  async function alertAction(url, okText) {
+    try {
+      const r = await api(url, { method: "POST" });
+      $("alertStatus").textContent = r.ok === false ? `Problem: ${r.error}` : typeof r.sent === "number" ? `Checked: ${r.sent} new item(s) sent.` : okText;
+    } catch (err) {
+      $("alertStatus").innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`;
+    }
+  }
+  $("alertTest").addEventListener("click", () => alertAction("/api/alerts/test", "Test message sent ✓ Check Telegram."));
+  $("alertCheck").addEventListener("click", () => alertAction("/api/alerts/check"));
+
   $("settingsForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const body = {};
+    const TEXT = ["currency", "telegramChatId", "backupDir"];
     for (const k of SETTINGS) {
       const v = $(`s-${k}`).value.trim();
-      body[k] = k === "currency" ? v || "EGP" : v === "" ? null : Number(v);
+      body[k] = TEXT.includes(k) ? v : v === "" ? null : Number(v);
+      if (body[k] == null && k !== "capital") delete body[k]; // empty = keep the default
     }
-    if (body.riskPct == null) delete body.riskPct;
-    if (body.maxPositionPct == null) delete body.maxPositionPct;
+    body.currency = body.currency || "EGP";
+    body.alertsOn = $("s-alertsOn").checked;
+    body.telegramToken = $("s-telegramToken").value.trim(); // empty keeps the saved token
+    body.holidays = $("s-holidays").value.split(/[,\s]+/).map((d) => d.trim()).filter(Boolean);
     try {
       await api("/api/profile/settings", { method: "PUT", body: JSON.stringify(body) });
       $("settingsSaved").textContent = "Saved ✓";
       setTimeout(() => ($("settingsSaved").textContent = ""), 2000);
       await load();
+      refreshAlertStatus();
+      refreshBackups();
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
+    }
+  });
+
+  $("cards").addEventListener("submit", async (ev) => {
+    const form = ev.target.closest("form.trade-form");
+    if (!form) return;
+    ev.preventDefault();
+    const sym = form.closest(".card").dataset.symbol;
+    const d = Object.fromEntries(new FormData(form));
+    const trade = { date: d.date, side: d.side, qty: Number(d.qty), price: Number(d.price), fees: d.fees === "" ? null : Number(d.fees) };
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    try {
+      await api(`/api/profile/entries/${encodeURIComponent(sym)}/trades`, { method: "POST", body: JSON.stringify(trade) });
+      await load();
+    } catch (err) {
+      setStatus(escapeHtml(err.message), true);
+      btn.disabled = false;
     }
   });
 
@@ -343,6 +528,20 @@
     }
     const btn = ev.target.closest("button[data-act]");
     if (!btn) return;
+    if (btn.dataset.act === "copy") {
+      try { await navigator.clipboard.writeText(btn.dataset.text); btn.textContent = "Copied ✓"; } catch (_) { btn.textContent = "Select & copy"; }
+      setTimeout(() => (btn.textContent = "Copy"), 1500);
+      return;
+    }
+    if (btn.dataset.act === "del-trade") {
+      const sym = btn.closest(".card").dataset.symbol;
+      if (!confirm("Delete this trade?")) return;
+      try {
+        await api(`/api/profile/entries/${encodeURIComponent(sym)}/trades/${btn.dataset.i}`, { method: "DELETE" });
+        await load();
+      } catch (err) { setStatus(escapeHtml(err.message), true); }
+      return;
+    }
     const sym = btn.closest(".card").dataset.symbol;
     const e = state.entries.find((x) => x.symbol === sym);
     if (btn.dataset.act === "edit") return fillForm(e);
@@ -377,5 +576,21 @@
   });
 
   try { const i = localStorage.getItem("profileInterval"); if (i) $("interval").value = i; } catch (_) {}
+  $("backupRestore").addEventListener("click", async () => {
+    const name = $("backupList").value;
+    if (!name || !confirm(`Replace your profile with the copy "${name}"? Your current profile is kept as a copy first.`)) return;
+    try {
+      await api(`/api/backups/restore?${new URLSearchParams({ name })}`, { method: "POST" });
+      $("backupStatus").textContent = "Restored ✓";
+      await load();
+      refreshBackups();
+    } catch (err) {
+      $("backupStatus").innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`;
+    }
+  });
+
   load();
+  refreshAlertStatus();
+  refreshBackups();
+  refreshPhone();
 })();

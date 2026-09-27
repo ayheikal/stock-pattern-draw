@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>My Profile</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#2563eb" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Patterns" />
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/">📐 Pattern Charts</a>
-    <nav class="nav"><a href="/">Chart</a><a href="/screener">Screener</a><a href="/profile" class="current">My profile</a><a href="/track">Track record</a></nav>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/screener">Screener</a><a href="/profile" class="current">My profile</a><a href="/track">Track record</a></nav>
     <div class="search">
       <select id="interval" title="Compare against the outlook on">
         <option value="1d" selected>Daily outlook</option>
@@ -33,9 +40,66 @@
         <span class="suffix"><input id="s-riskPct" type="number" min="0.1" max="10" step="0.1" value="1" />%</span></label>
       <label title="No single stock may be more than this share of your capital">Max in one stock
         <span class="suffix"><input id="s-maxPositionPct" type="number" min="1" max="100" step="1" value="25" />%</span></label>
+      <label title="Never buy more than this share of a stock's normal daily trading">Max of daily trading
+        <span class="suffix"><input id="s-maxAdtvPct" type="number" min="0.1" max="100" step="0.5" value="5" />%</span></label>
       <button type="submit" class="primary">Save</button>
       <span id="settingsSaved" class="muted small"></span>
       <p class="muted small rule-hint">A common rule is to lose at most <b>1–2%</b> of your money on any one trade, and keep any one stock under <b>20–25%</b>.</p>
+
+      <details class="settings-group">
+        <summary>Costs &amp; taxes <span class="muted small" id="costsSummary"></span></summary>
+        <div class="group-fields">
+          <label title="Brokerage + exchange + clearing + stamp duty, for one buy or one sell">Costs per trade
+            <span class="suffix"><input id="s-feePct" type="number" min="0" max="5" step="0.01" value="0.2" />%</span></label>
+          <label>Dividend tax<span class="suffix"><input id="s-dividendTaxPct" type="number" min="0" max="100" step="0.5" value="10" />%</span></label>
+          <label>Capital gains tax<span class="suffix"><input id="s-gainsTaxPct" type="number" min="0" max="100" step="0.5" value="0" />%</span></label>
+          <label title="Below this daily traded value a stock is flagged as thinly traded">Thin below (per day)<input id="s-minAdtv" type="number" min="0" step="100000" value="1000000" /></label>
+          <label title="Limit prices on order tickets are rounded to this step">Price step<input id="s-tickSize" type="number" min="0.001" max="10" step="0.001" value="0.01" /></label>
+        </div>
+        <p class="muted small">These are placeholders. Rates differ by broker and change with the law, so copy them from a recent contract note.</p>
+      </details>
+
+      <details class="settings-group" id="phoneGroup">
+        <summary>Phone app <span class="muted small" id="phoneSummary"></span></summary>
+        <div id="phoneBody" class="phone-body"><span class="muted small">Loading…</span></div>
+      </details>
+
+      <details class="settings-group" id="backupGroup">
+        <summary>Backup <span class="muted small" id="backupSummary"></span></summary>
+        <p class="muted small">Every change is saved as today's copy in <code id="backupFolder">data/backups</code> (the last 30 days are kept).
+          Add a folder inside OneDrive or Google Drive to also keep a copy off this computer.</p>
+        <div class="group-fields">
+          <label class="wide">Extra backup folder (optional)<input id="s-backupDir" placeholder="C:\Users\you\OneDrive\PatternCharts" /></label>
+        </div>
+        <div class="alert-actions">
+          <select id="backupList" title="Saved copies"></select>
+          <button type="button" id="backupRestore">Restore this copy</button>
+          <a href="/api/profile/export" class="link-btn">Download my profile</a>
+          <span id="backupStatus" class="muted small"></span>
+        </div>
+      </details>
+
+      <details class="settings-group">
+        <summary>Telegram alerts <span class="muted small" id="alertsSummary"></span></summary>
+        <div class="group-fields">
+          <label class="check"><input id="s-alertsOn" type="checkbox" /> Send alerts</label>
+          <label>Bot token<input id="s-telegramToken" type="password" autocomplete="off" placeholder="from @BotFather" /></label>
+          <label>Chat id<input id="s-telegramChatId" placeholder="from @userinfobot" /></label>
+          <label>Check every<span class="suffix"><input id="s-alertEveryMin" type="number" min="5" max="240" step="5" value="15" />min</span></label>
+          <label class="wide">Market holidays (YYYY-MM-DD, comma separated)<input id="s-holidays" placeholder="2026-10-06, 2026-11-26" /></label>
+        </div>
+        <div class="alert-actions">
+          <button type="button" id="alertTest">Send test message</button>
+          <button type="button" id="alertCheck">Check now</button>
+          <span id="alertStatus" class="muted small"></span>
+        </div>
+        <ol class="muted small setup-steps">
+          <li>In Telegram, message <b>@BotFather</b>, send <code>/newbot</code>, and paste the token it gives you here.</li>
+          <li>Send your new bot any message, then get your chat id from <b>@userinfobot</b>.</li>
+          <li>Tick <b>Send alerts</b>, press Save, then <b>Send test message</b>.</li>
+        </ol>
+        <p class="muted small">Checks run Sunday–Thursday 10:00–14:45 Cairo time while this app is running, and only new items are sent. The token stays on this computer; to remove it, type <code>clear</code> and Save.</p>
+      </details>
     </form>
 
     <section id="summaryPanel" class="summary-panel" hidden>
@@ -68,6 +132,7 @@
         </label>
         <label>Quantity<input id="f-qty" type="number" min="0" step="any" /></label>
         <label>Avg. cost<input id="f-avgCost" type="number" min="0" step="any" /></label>
+        <label title="Bonus shares and dividends after this date are counted in your P/L">Buy date<input id="f-since" type="date" /></label>
       </fieldset>
       <fieldset>
         <legend>My expectation</legend>
@@ -100,5 +165,6 @@
   </main>
 
   <script src="/static/profile.js"></script>
+  <script src="/static/pwa.js"></script>
 </body>
 </html>

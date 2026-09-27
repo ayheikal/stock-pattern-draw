@@ -37,6 +37,28 @@ UNIVERSES: dict[str, dict] = {
 MAX_SYMBOLS = 80
 
 
+def all_universes() -> dict[str, dict]:
+    """Built-in watchlists plus live EGX ones (most traded, per sector); built-ins only if offline."""
+    try:
+        from .egx import universes as egx_universes
+        return UNIVERSES | egx_universes(MAX_SYMBOLS)
+    except Exception:
+        return dict(UNIVERSES)
+
+
+def get_universe(key: str) -> dict | None:
+    # Built-ins first: no network needed for them.
+    return UNIVERSES.get(key) or (all_universes().get(key) if key.startswith("egx_") else None)
+
+
+def adtv(df, interval: str, currency: str | None) -> float | None:
+    """Average daily traded value (price x volume) over the last 20 bars; None for indices."""
+    if not currency or interval not in ("1d", "1wk") or df["Volume"].tail(20).sum() <= 0:
+        return None
+    v = float((df["Close"] * df["Volume"]).tail(20).mean())
+    return round(v / 5 if interval == "1wk" else v, 0)
+
+
 def _scan_one(symbol: str, interval: str, period: str) -> dict:
     try:
         return _analyze_one(symbol, interval, period)
@@ -72,14 +94,16 @@ def _analyze_one(symbol: str, interval: str, period: str) -> dict:
         "action": o["decision"]["newcomer"]["action"],
         "aboveSma200": None if sma200 is None else last >= sma200,
         "signal": o["drivers"][0]["text"] if o["drivers"] else "",
+        "adtv": adtv(df, interval, meta.get("currency")),
     }
 
 
-def scan(symbols: list[str], interval: str, period: str, min_score: float) -> dict:
+def scan(symbols: list[str], interval: str, period: str, min_score: float, min_adtv: float = 0) -> dict:
     with ThreadPoolExecutor(max_workers=8) as pool:
         rows = list(pool.map(lambda s: _scan_one(s, interval, period), symbols))
     ok = [r for r in rows if "error" not in r]
-    bullish = sorted((r for r in ok if r["score"] >= min_score), key=lambda r: (-r["score"], -r["upsidePct"]))
+    liquid = lambda r: not min_adtv or r["adtv"] is None or r["adtv"] >= min_adtv  # indices have no ADTV
+    bullish = sorted((r for r in ok if r["score"] >= min_score and liquid(r)), key=lambda r: (-r["score"], -r["upsidePct"]))
     return {
         "scanned": len(ok),
         "skipped": [r["symbol"] for r in rows if "error" in r],

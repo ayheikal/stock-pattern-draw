@@ -3,6 +3,7 @@
   const state = { rows: [], sortKey: null, sortDir: 1, interval: "1d" };
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (v) => (v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: Math.abs(v) >= 1 ? 2 : 5 }));
+  const compact = (v) => (v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : `${Math.round(v)}`);
   const pct = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 
   function setStatus(msg, isError = false) {
@@ -18,14 +19,14 @@
     $("universe").innerHTML = Object.entries(u).map(([k, v]) => `<option value="${k}">${escapeHtml(v.label)} (${v.count})</option>`).join("");
     try {
       const saved = JSON.parse(localStorage.getItem("screener") || "{}");
-      for (const k of ["universe", "symbols", "minScore", "interval"]) if (saved[k] != null) $(k).value = saved[k];
+      for (const k of ["universe", "symbols", "minScore", "minAdtv", "interval"]) if (saved[k] != null) $(k).value = saved[k];
     } catch (_) {}
   }
 
   async function scan() {
     const btn = document.querySelector("#scan button");
-    const params = { universe: $("universe").value, symbols: $("symbols").value.trim(), min_score: $("minScore").value, interval: $("interval").value, period: $("interval").value === "1wk" ? "5y" : "1y" };
-    try { localStorage.setItem("screener", JSON.stringify({ universe: params.universe, symbols: params.symbols, minScore: params.min_score, interval: params.interval })); } catch (_) {}
+    const params = { universe: $("universe").value, symbols: $("symbols").value.trim(), min_score: $("minScore").value, min_adtv: $("minAdtv").value, interval: $("interval").value, period: $("interval").value === "1wk" ? "5y" : "1y" };
+    try { localStorage.setItem("screener", JSON.stringify({ universe: params.universe, symbols: params.symbols, minScore: params.min_score, minAdtv: params.min_adtv, interval: params.interval })); } catch (_) {}
     btn.disabled = true;
     setStatus("Scanning… this can take a few seconds per dozen symbols.");
     $("results").hidden = true;
@@ -76,6 +77,7 @@
         <td class="num">${r.rr != null ? r.rr.toFixed(2) : "—"}</td>
         <td>${r.aboveSma200 == null ? "—" : r.aboveSma200 ? '<span class="up">Above</span>' : '<span class="down">Below</span>'}</td>
         <td><span class="action ${/buy/i.test(r.action) ? "good" : "caution"}">${escapeHtml(r.action)}</span></td>
+        <td class="num">${r.adtv == null ? "—" : compact(r.adtv)}</td>
         <td class="signal">${escapeHtml(r.signal)}</td>
       </tr>`).join("");
     $("results").hidden = !rows.length;
@@ -103,5 +105,13 @@
     try { localStorage.setItem("theme", root.dataset.theme); } catch (_) {}
   });
 
-  loadUniverses();
+  // A link like /screener?universe=egx_sector_finance (from the Market page) opens that list and scans it.
+  loadUniverses().then(() => {
+    const u = new URLSearchParams(location.search).get("universe");
+    if (u && [...$("universe").options].some((o) => o.value === u)) {
+      $("universe").value = u;
+      $("symbols").value = "";
+      scan();
+    }
+  });
 })();

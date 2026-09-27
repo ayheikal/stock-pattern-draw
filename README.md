@@ -50,6 +50,14 @@ are fetched from **TradingView** instead ([app/tradingview.py](app/tradingview.p
 TradingView history depth varies by index: EGX30 goes back to 1998, while
 EGX 33 Shariah starts in 2022.
 
+## EGX market
+
+`/market` shows the EGX at a glance: EGX 30 / 70 / 100 / 33 Shariah with trend and returns, breadth
+(stocks up vs down, share above their 50- and 200-day averages), a sector heatmap (click a sector to
+screen it) and the top gainers, losers and most traded stocks. The screener also gets live watchlists:
+the 80 most traded EGX stocks and one per sector. Source: TradingView's public screener (unofficial,
+delayed; see the note above).
+
 ## Track record
 
 `/track` measures whether the outlook has actually worked. For each symbol in a watchlist it replays the
@@ -66,6 +74,52 @@ Run it from the page (Run button, ~30 s for the EGX list), or from the command l
 
 Results are cached in `data/backtest_<watchlist>_<interval>.json` (git-ignored). Caveats: the watchlists are
 today's large caps (survivorship bias), there are no fees or slippage, and past results don't guarantee future ones.
+
+## My profile (EGX-aware)
+
+`/profile` tracks what you hold and watch, with a Buy / Hold / Sell tag per asset from your own view,
+stop and target plus your money rules (not from the chart signals, which the track record shows have no edge).
+
+- **Bonus shares & dividends:** give each holding a *buy date*. Bonus issues and splits after it raise your
+  quantity and lower your average cost (e.g. COMI's +10% bonus on 2025-12-17), and dividends are added
+  after dividend tax. Data from Yahoo's corporate actions.
+- **Costs & taxes:** a per-trade cost % (brokerage + exchange + clearing + stamp duty), dividend tax and gains
+  tax. They feed net P/L, a break-even price, position sizing and the Track record ("after costs").
+  The defaults are placeholders: copy the real rates from a contract note.
+- **Liquidity:** average daily traded value (20 bars). Position size never exceeds your set share of it,
+  thin stocks are flagged, and the screener can skip them.
+- **Trades:** record each buy and sell (date, qty, price, fees from the contract note or estimated).
+  Quantity and average cost then come from the trades (average-cost method), with realized profit,
+  fees and dividends per year, and bonus shares applied on their dates.
+- **USD view:** EGP holdings are also measured in dollars (USD/EGP on each buy date vs today), so a
+  gain that only reflects the pound's fall is visible as such.
+- **Order ticket:** Buy / Add more / Trim / Sell tags come with a copy-ready limit order (price rounded to
+  your *price step*) to type into your broker app; there's no broker connection.
+- **Telegram alerts:** stops here are mental stops, so the app can message you when a stop is hit, a
+  target is reached, or an action changes. Checks run Sun–Thu 10:00–14:45 Cairo time while the app is
+  running; only new items are sent. Set up under *Telegram alerts* on the profile page.
+
+## Run in the background, phone app, backups
+
+**Start with Windows** (so Telegram alerts work without a terminal):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1           # with phone access
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1 -NoPhone  # this computer only
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1         # undo
+```
+
+It registers a scheduled task that runs `pythonw -m app.serve` (no window) at sign-in; logs go to
+`data\server.log`. If a copy is already running on the port, the new one exits.
+
+**Phone app:** with phone access on, the app also answers on your home Wi-Fi. Every device except this
+computer needs the access key: open *My profile → Phone app* and scan the QR code with the phone,
+then *Add to Home screen*. The key lives in `data\access_key.txt` (delete it and restart for a new one).
+The computer must be on and the app running. Offline copies of pages only work on https/localhost.
+
+**Backups:** every change to the profile is saved as that day's copy in `data\backups` (last 30 days),
+and optionally in an extra folder such as OneDrive (*My profile → Backup*), where you can also restore a
+copy or download the profile (without the Telegram token).
 
 ## How it works
 

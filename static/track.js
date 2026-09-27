@@ -75,7 +75,9 @@
   function pool(buckets) {
     const n = buckets.reduce((a, b) => a + b.n, 0);
     const w = (k) => (n ? buckets.reduce((a, b) => a + (b[k] ?? 0) * b.n, 0) / n : null);
-    return { n, asExpected: w("asExpected"), avgRet: w("avgRet"), targetFirst: w("targetFirst"), stopFirst: w("stopFirst"), avgR: w("avgR") };
+    const hasNet = buckets.some((b) => b.avgRNet != null); // results saved before costs were added have none
+    return { n, asExpected: w("asExpected"), avgRet: w("avgRet"), targetFirst: w("targetFirst"), stopFirst: w("stopFirst"),
+             avgR: w("avgR"), avgRNet: hasNet ? w("avgRNet") : null };
   }
 
   function verdict(o) {
@@ -90,7 +92,8 @@
       const says = tone === "good" ? `a real but modest edge (+${edge.toFixed(1)} pts)` : tone === "bad" ? `worse than chance (${edge.toFixed(1)} pts)`
         : Math.abs(edge) < MIN_EDGE ? "no reliable edge" : `no reliable edge (a ${edge > 0 ? "+" : ""}${edge.toFixed(1)} pt gap is within luck for ${p.n.toLocaleString()} signals)`;
       return `<li class="${tone}"><b>${label} signals:</b> price ${word} after ${share(p.asExpected)} of them, vs ${share(base)} of all weeks, so <b>${says}</b>. `
-        + `The trade plan hit its target first ${share(p.targetFirst)} of the time and its stop first ${share(p.stopFirst)}, averaging ${p.avgR >= 0 ? "+" : ""}${p.avgR.toFixed(2)} R per trade.</li>`;
+        + `The trade plan hit its target first ${share(p.targetFirst)} of the time and its stop first ${share(p.stopFirst)}, averaging ${p.avgR >= 0 ? "+" : ""}${p.avgR.toFixed(2)} R per trade`
+        + (p.avgRNet != null ? `, or <b class="${p.avgRNet > 0 ? "up" : "down"}">${p.avgRNet >= 0 ? "+" : ""}${p.avgRNet.toFixed(2)} R after costs</b>` : "") + `.</li>`;
     };
     return `<h2>Verdict</h2><ul>${line("Bullish", bull, baseUp, "rose")}${line("Bearish", bear, baseDown, "fell")}</ul>
       <p class="muted small">"R" is the result in units of the risk taken (entry to stop): +1 R means you made what you risked, −1 R means the stop was hit.</p>`;
@@ -158,6 +161,8 @@
     const o = r.overall;
     const since = r.since || Object.values(r.perSymbol).map((s) => s.from).sort()[0];
     $("meta").textContent = `${r.symbols} symbols · ${o.n.toLocaleString()} signals since ${since} · run ${new Date(r.generatedAt).toLocaleString()} (${r.seconds}s)`
+      + (r.feePct != null ? ` · costs ${r.feePct}% per trade` : " · made before costs were counted: Re-run to include them")
+      + (r.minAdtv ? ` · only when the stock traded ${(r.minAdtv / 1e6).toLocaleString()}M+ a day` : "")
       + (r.skipped.length ? ` · skipped: ${r.skipped.join(", ")}` : "");
     $("win").textContent = r.window;
     $("horizonNote").textContent = `price change over the ${r.horizon}`;
@@ -173,10 +178,11 @@
         <td class="num">${share(b.targetFirst)}</td>
         <td class="num">${share(b.stopFirst)}</td>
         <td class="num ${cls(b.avgR)}">${b.avgR == null ? "—" : `${b.avgR > 0 ? "+" : ""}${b.avgR.toFixed(2)}`}</td>
+        <td class="num ${cls(b.avgRNet)}">${b.avgRNet == null ? "—" : `${b.avgRNet > 0 ? "+" : ""}${b.avgRNet.toFixed(2)}`}</td>
       </tr>`;
     $("buckets").querySelector("tbody").innerHTML = o.buckets.map(row).join("") + `
       <tr class="baseline"><td>Any week (baseline)</td><td class="num">${o.n.toLocaleString()}</td><td class="num ${cls(o.baseline)}">${pct(o.baseline)}</td>
-        <td class="num">—</td><td class="num" title="Share of all samples that rose">${share(o.upShare)} rose</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>`;
+        <td class="num">—</td><td class="num" title="Share of all samples that rose">${share(o.upShare)} rose</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>`;
 
     const rows = symbolRows(r);
     renderSimple(rows);

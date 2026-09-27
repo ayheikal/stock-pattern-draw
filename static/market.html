@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EGX Market</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#2563eb" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Patterns" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Pattern Charts</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market" class="current">Market</a><a href="/screener">Screener</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <div class="search"><button id="refresh" type="button">Refresh</button></div>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener market">
+    <div class="screener-head">
+      <h1>EGX market</h1>
+      <div id="asOf" class="muted"></div>
+    </div>
+    <div id="status" class="status inline">Loading the market…</div>
+
+    <section id="content" hidden>
+      <div id="indices" class="index-grid"></div>
+
+      <h2>Breadth <span class="muted small">how many stocks are taking part</span></h2>
+      <div id="breadth" class="tiles"></div>
+
+      <h2>Sectors <span class="muted small">today's change, weighted by company size · click one to screen it</span></h2>
+      <div id="sectors" class="sector-grid"></div>
+
+      <div class="movers">
+        <div><h2>Top gainers</h2><div class="table-wrap"><table class="data mover" id="gainers"><tbody></tbody></table></div></div>
+        <div><h2>Top losers</h2><div class="table-wrap"><table class="data mover" id="losers"><tbody></tbody></table></div></div>
+        <div><h2>Most traded</h2><div class="table-wrap"><table class="data mover" id="active"><tbody></tbody></table></div></div>
+      </div>
+      <p class="muted small">Gainers and losers only count stocks that traded at least 1M EGP. Data is delayed and comes from TradingView's public screener. Not advice.</p>
+    </section>
+  </main>
+
+  <script src="/static/market.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>

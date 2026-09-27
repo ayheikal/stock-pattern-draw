@@ -98,6 +98,38 @@ def _download(symbol: str, interval: str, period: str) -> tuple[pd.DataFrame, di
     return df, meta
 
 
+_actions_cache: TTLCache = TTLCache(maxsize=256, ttl=12 * 3600)
+
+
+def fetch_actions(resolved: str) -> list[dict]:
+    """Dividends and splits/bonus shares for a resolved symbol, oldest first.
+
+    Yahoo only; a TradingView code like EGX:COMI is looked up as COMI.CA. Indices return [].
+    Yahoo's dividends are per share *after* later splits, matching its split-adjusted prices.
+    """
+    code = resolved.strip().upper()
+    if code.startswith("EGX:"):
+        code = code[4:] + ".CA"
+    elif ":" in code:
+        return []
+    with _lock:
+        if code in _actions_cache:
+            return _actions_cache[code]
+    out: list[dict] = []
+    try:
+        a = yf.Ticker(code).actions
+    except Exception:  # no actions is the safe answer; P/L just isn't adjusted
+        a = None
+    if a is not None and not a.empty:
+        for ts, row in a.iterrows():
+            div, split = float(row.get("Dividends", 0) or 0), float(row.get("Stock Splits", 0) or 0)
+            if div > 0 or split > 0:
+                out.append({"date": ts.strftime("%Y-%m-%d"), "dividend": div, "split": split})
+    with _lock:
+        _actions_cache[code] = out
+    return out
+
+
 def fetch_ohlcv(symbol: str, interval: str = "1d", period: str = "1y") -> tuple[str, pd.DataFrame, dict]:
     """Return (resolved_symbol, dataframe, metadata).
 

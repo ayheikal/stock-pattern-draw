@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from app import backtest, main, profile
+from app import backtest, main, profile, screener
 from test_patterns import make_ohlc
 
 UPTREND = [(0, 50.0), (80, 70), (20, 64), (80, 90), (20, 84), (80, 110), (20, 100), (80, 130)]
@@ -78,7 +78,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(backtest, "PARALLEL", False)
     df = make_ohlc(UPTREND)
     monkeypatch.setattr(backtest, "fetch_ohlcv", lambda s, i, p: (f"{s}.X", df, {"longName": s}))
-    monkeypatch.setitem(backtest.UNIVERSES, "tiny", {"label": "Tiny", "symbols": ["AAA", "BBB"]})
+    monkeypatch.setitem(screener.UNIVERSES, "tiny", {"label": "Tiny", "symbols": ["AAA", "BBB"]})
     return TestClient(main.app)
 
 
@@ -134,3 +134,25 @@ def test_cutoff_and_old_cache_without_periods():
     old = {"universe": "egx", "interval": "1d", "range": "all", "overall": {}, "perSymbol": {}}
     assert backtest.view(old, "1y")["rangeMissing"] is True
     assert "rangeMissing" not in backtest.view(old, "all")
+
+
+def test_net_of_costs():
+    s = lambda bias, ret, outcome=None, R=None, risk=None: {"bias": bias, "fwdRet": ret, "outcome": outcome, "R": R, "riskPct": risk}
+    # a +2R winner risking 2% of the price: 0.2% fee each way costs 0.4/2 = 0.2R
+    out = backtest.summarize_samples([s("Bullish", 3.0, "target", 2.0, 2.0), s("Bullish", -1.0, "stop", -1.0, 4.0)], fee_pct=0.2)
+    b = next(x for x in out["buckets"] if x["bias"] == "Bullish")
+    assert b["avgR"] == 0.5 and b["avgRNet"] == pytest.approx((1.8 + -1.1) / 2, abs=1e-3)
+    assert b["avgRetNet"] == pytest.approx(1.0 - 0.4)
+    neutral = next(x for x in out["buckets"] if x["bias"] == "Neutral")
+    assert neutral["avgRetNet"] is None
+
+
+def test_liquidity_filter_skips_thin_bars():
+    df = make_ohlc(UPTREND)
+    df["Volume"] = 1000.0  # ~50-130 x 1000 = well under 1M a day
+    assert backtest.replay(df, "1d", min_adtv=1_000_000) == []
+    df.loc[df.index[280:], "Volume"] = 1e6  # liquid from bar 280 on (~100M a day lifts the 20-bar average at once)
+    rows = backtest.replay(df, "1d", min_adtv=1_000_000)
+    all_rows = backtest.replay(df, "1d")
+    assert 0 < len(rows) < len(all_rows)
+    assert all(r["date"] >= df.index[280].strftime("%Y-%m-%d") for r in rows)

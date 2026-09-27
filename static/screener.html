@@ -5,17 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bullish Screener</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#2563eb" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Patterns" />
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="/">📐 Pattern Charts</a>
-    <nav class="nav"><a href="/">Chart</a><a href="/screener" class="current">Screener</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/screener" class="current">Screener</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
     <form id="scan" class="search" autocomplete="off">
       <select id="universe" title="Watchlist"></select>
       <input id="symbols" placeholder="…or your own list: COMI.CA, EGX30, AAPL" title="Comma-separated symbols (overrides the watchlist)" />
       <select id="minScore" title="Minimum outlook">
         <option value="0.4" selected>Mildly bullish or better</option>
         <option value="1.2">Bullish only</option>
+      </select>
+      <select id="minAdtv" title="Skip stocks that trade less than this value a day (thin stocks are hard to exit)">
+        <option value="0">Any liquidity</option>
+        <option value="1000000">Trades 1M+ a day</option>
+        <option value="5000000" selected>Trades 5M+ a day</option>
+        <option value="20000000">Trades 20M+ a day</option>
       </select>
       <select id="interval" title="Bar interval">
         <option value="1d" selected>Daily</option>
@@ -46,6 +59,7 @@
             <th data-k="rr" class="num">R:R</th>
             <th data-k="aboveSma200">SMA 200</th>
             <th data-k="action">Action</th>
+            <th data-k="adtv" class="num" title="Average value traded per day, last 20 bars">Daily value</th>
             <th data-k="signal">Main signal</th>
           </tr>
         </thead>
@@ -56,5 +70,6 @@
   </main>
 
   <script src="/static/screener.js"></script>
+  <script src="/static/pwa.js"></script>
 </body>
 </html>

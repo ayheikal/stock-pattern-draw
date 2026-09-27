@@ -21,7 +21,7 @@ import pandas as pd
 from .data import InsufficientHistory, SymbolNotFound, fetch_ohlcv
 from .outlook import HORIZONS, build_outlook
 from .patterns import analyze
-from .screener import UNIVERSES
+from .screener import get_universe
 
 WINDOW = 250
 HISTORY = {"1d": "10y", "1wk": "max"}
@@ -69,13 +69,18 @@ def sample_at(df: pd.DataFrame, i: int, interval: str) -> dict:
             "plan": next((p for p in o["plans"] if not p["conditional"]), None)}
 
 
-def replay(df: pd.DataFrame, interval: str) -> list[dict]:
+def replay(df: pd.DataFrame, interval: str, min_adtv: float = 0.0) -> list[dict]:
+    """Samples along the history. With `min_adtv`, bars where the stock traded less than that
+    per day (20-bar average, as known at that bar) are skipped: those trades couldn't really be done."""
     h = horizon_bars(interval)
     max_bars = 4 * h
     close = df["Close"]
     out = []
     # Step by h so forward windows don't overlap; stop where the full outcome window still fits.
+    daily_value = (df["Close"] * df["Volume"]).rolling(20).mean() / (5 if interval == "1wk" else 1)
     for i in range(WINDOW - 1, len(df) - max_bars, h):
+        if min_adtv and not daily_value.iloc[i] >= min_adtv:
+            continue
         try:
             s = sample_at(df, i, interval)
         except Exception:  # a degenerate window shouldn't cost the whole symbol
@@ -92,6 +97,8 @@ def replay(df: pd.DataFrame, interval: str) -> list[dict]:
             res = plan_outcome(df, i, s["plan"], max_bars)
             if res:
                 row["outcome"], row["R"] = res
+                # risk as % of entry: turns a round-trip fee into R units (cost_R = 2 x fee / riskPct)
+                row["riskPct"] = round(abs(s["plan"]["entry"] - s["plan"]["stop"]) / s["plan"]["entry"] * 100, 4)
         out.append(row)
     return out
 
@@ -104,7 +111,8 @@ def _share(xs: list, pred) -> float | None:
     return round(sum(1 for x in xs if pred(x)) / len(xs) * 100, 1) if xs else None
 
 
-def summarize_samples(samples: list[dict]) -> dict:
+def summarize_samples(samples: list[dict], fee_pct: float = 0.0) -> dict:
+    """Stats per bias bucket; the *Net fields subtract a buy and a sell at `fee_pct` each."""
     rets = [s["fwdRet"] for s in samples]
     baseline = _mean(rets)
     buckets = []
@@ -124,12 +132,14 @@ def summarize_samples(samples: list[dict]) -> dict:
             "stopFirst": _share(planned, lambda s: s["outcome"] == "stop"),
             "timeout": _share(planned, lambda s: s["outcome"] == "timeout"),
             "avgR": _mean([s["R"] for s in planned]),
+            "avgRNet": _mean([s["R"] - 2 * fee_pct / s["riskPct"] for s in planned if s.get("riskPct")]),
+            "avgRetNet": round(avg - 2 * fee_pct, 3) if avg is not None and d else None,
             "small": len(ss) < MIN_RELIABLE,
         })
     return {"n": len(samples), "baseline": baseline, "upShare": _share(rets, lambda x: x > 0), "buckets": buckets}
 
 
-def _replay_symbol(symbol: str, interval: str) -> dict:
+def _replay_symbol(symbol: str, interval: str, min_adtv: float = 0.0) -> dict:
     try:
         resolved, df, meta = fetch_ohlcv(symbol, interval, HISTORY[interval])
     except (SymbolNotFound, InsufficientHistory):
@@ -140,17 +150,18 @@ def _replay_symbol(symbol: str, interval: str) -> dict:
         return {"symbol": symbol, "error": f"only {len(df)} bars"}
     return {"symbol": symbol, "resolved": resolved, "name": meta.get("longName") or meta.get("shortName") or resolved,
             "from": df.index[0].strftime("%Y-%m-%d"), "to": df.index[-1].strftime("%Y-%m-%d"),
-            "samples": replay(df, interval)}
+            # indices have no traded value of their own, so the liquidity filter is for stocks only
+            "samples": replay(df, interval, min_adtv if meta.get("currency") else 0.0)}
 
 
-def _period(ok: list[dict], since: str | None) -> dict:
+def _period(ok: list[dict], since: str | None, fee_pct: float = 0.0) -> dict:
     """Summaries using only signals dated on/after `since`."""
     pick = lambda r: [s for s in r["samples"] if since is None or s["date"] >= since]
     return {
         "since": since or min((r["from"] for r in ok), default=None),
-        "overall": summarize_samples([s for r in ok for s in pick(r)]),
+        "overall": summarize_samples([s for r in ok for s in pick(r)], fee_pct),
         "perSymbol": {
-            r["resolved"]: {"query": r["symbol"], "name": r["name"], "from": r["from"], **summarize_samples(pick(r))}
+            r["resolved"]: {"query": r["symbol"], "name": r["name"], "from": r["from"], **summarize_samples(pick(r), fee_pct)}
             for r in ok
         },
     }
@@ -161,23 +172,25 @@ def cutoff(last: str, months: int) -> str:
     return (pd.Timestamp(last) - pd.DateOffset(months=months)).strftime("%Y-%m-%d")
 
 
-def run(universe: str, interval: str, symbols: list[str] | None = None) -> dict:
-    symbols = symbols or UNIVERSES[universe]["symbols"]
+def run(universe: str, interval: str, symbols: list[str] | None = None, fee_pct: float = 0.0, min_adtv: float = 0.0) -> dict:
+    symbols = symbols or get_universe(universe)["symbols"]
     t0 = time.perf_counter()
     if PARALLEL and len(symbols) > 1:
         with ProcessPoolExecutor(max_workers=max(1, min(len(symbols), (os.cpu_count() or 2) - 1))) as pool:
-            rows = list(pool.map(_replay_symbol, symbols, [interval] * len(symbols)))
+            rows = list(pool.map(_replay_symbol, symbols, [interval] * len(symbols), [min_adtv] * len(symbols)))
     else:
-        rows = [_replay_symbol(s, interval) for s in symbols]
+        rows = [_replay_symbol(s, interval, min_adtv) for s in symbols]
     ok = [r for r in rows if "error" not in r]
     last = max((r["to"] for r in ok), default=None)
-    periods = {k: _period(ok, cutoff(last, m) if m and last else None) for k, m in RANGES.items()}
+    periods = {k: _period(ok, cutoff(last, m) if m and last else None, fee_pct) for k, m in RANGES.items()}
     return {
         "universe": universe,
         "interval": interval,
         "horizonBars": horizon_bars(interval),
         "horizon": HORIZONS[interval][1],
         "window": WINDOW,
+        "feePct": fee_pct,
+        "minAdtv": min_adtv,
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "seconds": round(time.perf_counter() - t0, 1),
         "symbols": len(ok),
@@ -229,7 +242,7 @@ def status(universe: str, interval: str) -> dict:
         return {"running": key in _running, "error": _errors.get(key)}
 
 
-def start(universe: str, interval: str) -> bool:
+def start(universe: str, interval: str, fee_pct: float = 0.0, min_adtv: float = 0.0) -> bool:
     """Run in a background thread; False if this universe/interval is already running."""
     key = (universe, interval)
     with _lock:
@@ -240,7 +253,7 @@ def start(universe: str, interval: str) -> bool:
 
     def work():
         try:
-            save(run(universe, interval))
+            save(run(universe, interval, fee_pct=fee_pct, min_adtv=min_adtv))
         except Exception as e:
             with _lock:
                 _errors[key] = str(e)[:200]
@@ -254,9 +267,9 @@ def start(universe: str, interval: str) -> bool:
 
 def track_for(resolved: str, interval: str) -> dict | None:
     """Cached per-symbol record from any universe that includes this symbol."""
-    for universe in UNIVERSES:
-        res = load(universe, interval)
-        if res and resolved in res["perSymbol"]:
+    for p in sorted(_dir().glob(f"backtest_*_{interval}.json")):
+        res = json.loads(p.read_text(encoding="utf-8"))
+        if resolved in res.get("perSymbol", {}):
             return res["perSymbol"][resolved]
     return None
 
@@ -264,8 +277,10 @@ def track_for(resolved: str, interval: str) -> dict | None:
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # Windows consoles default to cp1252
     uni = sys.argv[1] if len(sys.argv) > 1 else "egx"
-    iv = sys.argv[2] if len(sys.argv) > 2 else "1d"
-    res = run(uni, iv)
+    iv = sys.argv[2] if len(sys.argv) > 2 else "1wk"
+    from .profile import load as load_profile  # the CLI uses the fee saved in My profile
+    rules = load_profile().settings
+    res = run(uni, iv, fee_pct=rules.feePct, min_adtv=rules.minAdtv)
     save(res)
     print(f"{res['symbols']} symbols in {res['seconds']}s; skipped: {', '.join(res['skipped']) or 'none'}")
     o = res["overall"]

@@ -18,6 +18,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PROFILE_PATH", str(tmp_path / "profile.json"))
     monkeypatch.setenv("BACKTEST_DIR", str(tmp_path))
     monkeypatch.setattr(profile, "_scan_one", lambda s, i, p: live_row(s, 110.0, 1.5))
+    monkeypatch.setattr(profile, "fetch_actions", lambda s: [])
+    monkeypatch.setattr(profile, "usd_rates", lambda: None)  # no network in tests
     return TestClient(main.app)
 
 
@@ -42,7 +44,11 @@ def test_profile_rejects_bad_input(client):
     assert client.put("/api/profile/entries", json={"symbol": "X", "avgCost": -1}).status_code == 422
 
 
+NOFEE = profile.Settings(feePct=0)
+
+
 def test_profile_live_comparison(client):
+    client.put("/api/profile/settings", json={"feePct": 0})
     client.put("/api/profile/entries", json={"symbol": "EGX30", "position": "long", "qty": 10, "avgCost": 100,
                                              "expectation": "bullish", "target": 130, "stop": 90})
     e = client.get("/api/profile").json()["entries"][0]
@@ -58,7 +64,7 @@ def test_profile_live_comparison(client):
     (dict(expectation="neutral"), 110.0, 1.0, {"agreement": "mixed"}),
 ])
 def test_compare_cases(entry, last, score, expect):
-    out = profile.compare(profile.Entry(symbol="X", **entry), live_row("X", last, score))
+    out = profile.compare(profile.Entry(symbol="X", **entry), live_row("X", last, score), settings=NOFEE)
     assert {k: out[k] for k in expect} == expect
 
 
@@ -71,14 +77,14 @@ def test_summary_totals_and_attention():
     rows = [
         # long 10 @ 100, now 110 -> +100; chart bearish -> disagrees
         profile.compare(profile.Entry(symbol="A", position="long", qty=10, avgCost=100, expectation="bullish", stop=108),
-                        live_row("A", 110.0, -1.0)),
+                        live_row("A", 110.0, -1.0), settings=NOFEE),
         # short 5 @ 50, now 60 -> -50; past its stop
         profile.compare(profile.Entry(symbol="B", position="short", qty=5, avgCost=50, expectation="bearish", stop=55),
-                        live_row("B", 60.0, -1.0)),
+                        live_row("B", 60.0, -1.0), settings=NOFEE),
         profile.compare(profile.Entry(symbol="C", expectation="bullish", target=90), live_row("C", 95.0, 1.0)),
         profile.compare(profile.Entry(symbol="D"), {"symbol": "D", "error": "no data"}),
     ]
-    s = profile.summarize(rows)
+    s = profile.summarize(rows, NOFEE)
     assert (s["count"], s["holding"], s["watching"]) == (4, 2, 2)
     [book] = s["byCurrency"]
     assert (book["cost"], book["pl"], book["value"], book["positions"]) == (1250.0, 50.0, 1300.0, 2)
@@ -90,6 +96,7 @@ def test_summary_totals_and_attention():
 
 
 def test_live_profile_includes_summary(client):
+    client.put("/api/profile/settings", json={"feePct": 0})
     client.put("/api/profile/entries", json={"symbol": "EGX30", "position": "long", "qty": 10, "avgCost": 100})
     s = client.get("/api/profile").json()["summary"]
     assert s["byCurrency"][0]["currency"] == "EGP" and s["byCurrency"][0]["pl"] == 100.0
@@ -101,7 +108,7 @@ def test_settings_sizing_and_risk(client):
     e = client.get("/api/profile").json()["entries"][0]
     assert e["sizing"]["configured"] is False and e["exposure"] is None
 
-    assert client.put("/api/profile/settings", json={"capital": 200000, "riskPct": 1, "maxPositionPct": 25}).status_code == 200
+    assert client.put("/api/profile/settings", json={"capital": 200000, "riskPct": 1, "maxPositionPct": 25, "feePct": 0}).status_code == 200
     assert client.put("/api/profile/settings", json={"capital": 1000, "riskPct": 50}).status_code == 422
     body = client.get("/api/profile").json()
     e = body["entries"][0]
@@ -128,7 +135,7 @@ def test_held_position_stop_follows_the_position_not_the_view():
     assert any(a["kind"] == "stop" for a in profile.summarize([out])["attention"])
 
 
-RULES = profile.Settings(capital=100_000, riskPct=1, maxPositionPct=25)
+RULES = profile.Settings(capital=100_000, riskPct=1, maxPositionPct=25, feePct=0)
 
 
 def act(last: float, score: float = 0.0, chart_stop: float | None = None, **entry) -> dict:
@@ -180,3 +187,22 @@ def test_summary_groups_actions():
         ("D", dict(expectation="neutral")),
     ]]
     assert profile.summarize(rows, RULES)["todo"] == {"buy": ["A"], "hold": ["B"], "sell": ["C"], "wait": ["D"]}
+
+
+def ticket(last: float, chart_stop: float | None = None, settings=RULES, **entry) -> dict | None:
+    row = live_row("COMI.CA", last, 0.0) | {"chartStop": chart_stop}
+    return profile.compare(profile.Entry(symbol="COMI.CA", **entry), row, settings=settings)["ticket"]
+
+
+def test_order_tickets():
+    b = ticket(50.004, expectation="bullish", stop=45, target=70)  # Buy 200 (1% of 100k / 5)
+    assert (b["side"], b["symbol"], b["qty"], b["limit"], b["stop"]) == ("BUY", "COMI", 199, 50.01, 45)
+    assert "BUY 199 COMI @ 50.01 limit" in b["text"] and "stop at 45.00" in b["text"]
+    s = ticket(44.0, position="long", qty=100, avgCost=50, stop=45, target=70)  # Cut loss: sell everything
+    assert (s["side"], s["qty"], s["limit"], s["stop"]) == ("SELL", 100, 44.0, None)
+    t = ticket(50.0, position="long", qty=1000, avgCost=40, stop=49, expectation="bullish")  # Trim 500
+    assert (t["side"], t["qty"], t["stop"]) == ("SELL", 500, 49)
+    assert ticket(55.0, position="long", qty=100, avgCost=50, stop=45, target=70, expectation="bullish") is None  # Hold
+    assert ticket(50.0, expectation="neutral") is None  # Watch
+    coarse = profile.Settings(capital=100_000, feePct=0, tickSize=0.05)
+    assert ticket(50.02, settings=coarse, expectation="bullish", stop=45, target=70)["limit"] == 50.05

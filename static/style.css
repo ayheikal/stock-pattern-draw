@@ -472,3 +472,71 @@ body {
 .card.collapsed { gap: 6px; }
 .card.collapsed .card-details { display: none; }
 .card.collapsed .card-mini { display: block; }
+
+/* --- Costs, alerts, corporate actions --- */
+.settings-group { flex-basis: 100%; border-top: 1px dashed var(--border); padding-top: 8px; }
+.settings-group summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.settings-group .group-fields { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin: 10px 0 6px; }
+.settings-group label.check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: 13px; }
+.settings-group label.check input { width: auto; }
+.settings-group label.wide { flex: 1 1 260px; }
+.settings-group label.wide input { width: 100%; }
+.settings-group #s-telegramToken { width: 230px; }
+.settings-group #s-telegramChatId { width: 130px; }
+.alert-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.alert-actions button { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+.setup-steps { margin: 8px 0 4px; padding-left: 18px; line-height: 1.6; }
+.settings-group code { background: var(--hover); padding: 0 4px; border-radius: 4px; }
+.corp { margin-top: 4px; line-height: 1.45; }
+.thin-note { margin-top: 6px; font-size: 12px; color: var(--resistance); }
+
+/* --- Market page --- */
+.market h2 { font-size: 15px; margin: 20px 0 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.market h2 .small { font-weight: 400; }
+#content[hidden] { display: none; }
+.index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 10px; }
+.index-card { display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
+.index-card:hover { border-color: var(--accent); }
+.ic-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ic-price { margin: 4px 0; }
+.ic-price .big { font-size: 22px; font-weight: 700; }
+.ic-price .up, .ic-stats .up, .mover .up { color: var(--bull); }
+.ic-price .down, .ic-stats .down, .mover .down { color: var(--bear); }
+.ic-stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 4px 0; }
+.trend { font-size: 11px; font-weight: 600; border-radius: 10px; padding: 1px 8px; border: 1px solid currentColor; color: var(--resistance); }
+.trend.uptrend { color: var(--bull); }
+.trend.downtrend { color: var(--bear); }
+.spark { width: 100%; height: 40px; display: block; }
+.spark polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.spark.up polyline { stroke: var(--bull); }
+.spark.down polyline { stroke: var(--bear); }
+.sector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 8px; }
+.sector-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); color: var(--text); text-decoration: none; font-size: 13px; }
+.sector-tile:hover { outline: 2px solid var(--accent); }
+.sector-tile .sc { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.movers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.mover td { padding: 6px 10px !important; }
+
+/* --- Trades, order ticket --- */
+.card-body > .trades { grid-column: 1 / -1; }
+.trade-list { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
+.trade-list td { padding: 3px 4px; border-bottom: 1px dashed var(--border); }
+.trade-list .up { color: var(--bull); font-weight: 600; } .trade-list .down { color: var(--bear); font-weight: 600; }
+.trade-list .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.trade-list .x:hover { color: var(--bear); }
+.trade-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.trade-form input, .trade-form select { font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; width: 90px; min-width: 0; flex: 1 1 80px; }
+.trade-form input[type=date] { flex: 1 1 120px; }
+.trade-form button { font: inherit; font-size: 12px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.ticket { display: flex; align-items: center; gap: 8px; font-size: 12px; font-family: ui-monospace, Consolas, monospace; background: var(--bg); border: 1px dashed var(--border); border-radius: 8px; padding: 6px 8px; }
+.ticket-text { flex: 1; min-width: 0; user-select: all; }
+.ticket button { font: inherit; font-family: system-ui, sans-serif; font-size: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; padding: 3px 10px; cursor: pointer; flex: none; }
+
+.alert-actions select { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; max-width: 100%; }
+
+/* --- Phone app --- */
+#phoneGroup[hidden] { display: none; }
+.phone-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-top: 8px; }
+.qr { width: 180px; height: 180px; flex: none; background: #fff; border-radius: 8px; padding: 4px; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.phone-row .setup-steps { flex: 1 1 260px; margin: 0; }
