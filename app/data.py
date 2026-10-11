@@ -1,7 +1,8 @@
 """OHLCV fetching with symbol normalization and caching.
 
-Yahoo Finance is the primary source. TradingView fills the gaps Yahoo has for
-the Egyptian Exchange: EGX indices only have a live quote on Yahoo.
+TradingView is the primary source for the Egyptian Exchange: Yahoo publishes EGX
+sessions a day or more late and has no history for EGX indices. Yahoo Finance serves
+everything else, and is the fallback for EGX stocks TradingView can't find.
 """
 from __future__ import annotations
 
@@ -77,11 +78,11 @@ def candidates(symbol: str) -> list[tuple[str, str]]:
         return [("tv", TV_ALIASES[compact])]
     if s in ALIASES:
         return [("yahoo", ALIASES[s])]
-    out = [("yahoo", s)]
     if s.endswith(".CA"):
-        out.append(("tv", "EGX:" + s[:-3].lstrip("^")))
-    elif not any(c in s for c in ".^="):
-        out += [("yahoo", f"{s}.CA"), ("yahoo", f"^{s}"), ("tv", f"EGX:{s}")]
+        return [("tv", "EGX:" + s[:-3].lstrip("^")), ("yahoo", s)]
+    out = [("yahoo", s)]
+    if not any(c in s for c in ".^="):
+        out += [("tv", f"EGX:{s}"), ("yahoo", f"{s}.CA"), ("yahoo", f"^{s}")]
     return out
 
 

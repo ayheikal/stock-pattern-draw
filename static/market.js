@@ -56,8 +56,8 @@
   function renderSectors(rows) {
     const max = Math.max(...rows.map((r) => Math.abs(r.changePct)), 0.5);
     $("sectors").innerHTML = rows.map((r) => {
-      const a = Math.min(Math.abs(r.changePct) / max, 1) * 0.55 + 0.08;
-      const bg = r.changePct >= 0 ? `rgba(22,163,74,${a.toFixed(2)})` : `rgba(220,38,38,${a.toFixed(2)})`;
+      const a = Math.round((Math.min(Math.abs(r.changePct) / max, 1) * 0.55 + 0.08) * 100);
+      const bg = `color-mix(in srgb, var(${r.changePct >= 0 ? "--bull" : "--bear"}) ${a}%, transparent)`;
       const u = new URLSearchParams({ universe: `egx_sector_${r.slug}` });
       return `<a class="sector-tile" style="background:${bg}" href="/screener?${u}" title="${r.adv} up, ${r.dec} down · ${compact(r.value)} EGP traded">
         <b>${escapeHtml(r.sector)}</b><span class="sc">${pct(r.changePct)}</span><span class="muted small">${r.count} stocks · ${compact(r.value)}</span></a>`;
@@ -103,12 +103,25 @@
   $("refresh").addEventListener("click", load);
 
   const root = document.documentElement;
+  const isDark = () => (root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
+
+  // TradingView's embeddable stock heatmap for the whole Egyptian market; rebuilt when the theme flips.
+  function renderHeatmap() {
+    const cfg = {
+      dataSource: "AllEG", grouping: "sector", blockSize: "market_cap_basic", blockColor: "change",
+      colorTheme: isDark() ? "dark" : "light", hasTopBar: false, isDataSetEnabled: false, isZoomEnabled: true,
+      hasSymbolTooltip: true, isMonoSize: false, symbolUrl: "", autosize: true,
+    };
+    $("heatmap").innerHTML = `<iframe title="EGX stock heatmap" loading="lazy" src="https://s.tradingview.com/embed-widget/stock-heatmap/?locale=en#${encodeURIComponent(JSON.stringify(cfg))}"></iframe>`;
+  }
+
   try { const t = localStorage.getItem("theme"); if (t) root.dataset.theme = t; } catch (_) {}
   $("theme").addEventListener("click", () => {
-    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-    root.dataset.theme = dark ? "light" : "dark";
+    root.dataset.theme = isDark() ? "light" : "dark";
     try { localStorage.setItem("theme", root.dataset.theme); } catch (_) {}
+    renderHeatmap();
   });
 
+  renderHeatmap();
   load();
 })();

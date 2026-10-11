@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EGX Sectors</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Patterns" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Pattern Charts</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors" class="current">Sectors</a><a href="/screener">Screener</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <div class="search"><button id="refresh" type="button">Refresh</button></div>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener sectors">
+    <div class="screener-head">
+      <h1>Sector outlook <span class="muted small">company financials and upcoming events, combined with the price trend</span></h1>
+      <div id="asOf" class="muted"></div>
+    </div>
+
+    <form id="inflationForm" class="settings-bar inflation-bar" autocomplete="off">
+      <label title="Egyptian pound figures grow with prices, so growth is judged after inflation">Inflation
+        <span class="suffix"><input id="inflation" type="number" min="0" max="100" step="0.5" value="12" />%</span></label>
+      <button type="submit">Save</button>
+      <span id="inflationSaved" class="muted small"></span>
+      <span class="muted small">Revenue and earnings growth count as <b>real</b> only above this. Use the latest annual inflation rate.</span>
+    </form>
+
+    <div id="status" class="status inline">Loading company financials…</div>
+
+    <section id="content" hidden>
+      <div id="summary" class="tiles"></div>
+      <div class="cards-toolbar">
+        <span class="muted small">Click a sector's header to show or hide its details.</span>
+        <button type="button" id="expandAll" class="link-btn">Expand all</button>
+        <button type="button" id="collapseAll" class="link-btn">Collapse all</button>
+      </div>
+      <div id="cards" class="cards sector-cards"></div>
+      <p class="muted small">
+        <b>How the app suggests a status:</b> for each sector it takes the median company's revenue and earnings-per-share
+        growth (yearly, else the latest quarter), minus inflation, and the share of companies whose earnings beat inflation.
+        Growth needs at least two of these clearly positive, Shallow at least two clearly negative; anything else is Normal.
+        Many EGX companies don't report these figures to the data source, so check the coverage line on each card.
+        Your own status, note and events (rate decisions, new laws, contracts, …) always win over the suggestion.<br />
+        <b>The conclusion</b> combines that financial status with the sector's price trend: the share of its stocks above
+        their 50- and 200-day averages and its 3-month move (weighted by company size). When both agree you get Favour or
+        Avoid; when they disagree, Accumulate, Watch or Caution. It also flags an overbought or oversold sector (median RSI)
+        and whether your upcoming events lean positive or negative. This app's track record finds chart signals on
+        their own have had little edge, so treat the trend as timing and the financials as the case.
+        Data comes from TradingView's public screener and may be delayed or incomplete. Not advice.
+      </p>
+    </section>
+  </main>
+
+  <script src="/static/sectors.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>

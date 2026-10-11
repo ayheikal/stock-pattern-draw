@@ -38,7 +38,7 @@
   function applyTheme() {
     const text = css("--text"), grid = css("--grid");
     chart.applyOptions({
-      layout: { background: { type: "solid", color: css("--panel") }, textColor: css("--muted"), fontFamily: "system-ui, sans-serif" },
+      layout: { background: { type: "solid", color: css("--panel") }, textColor: css("--muted"), fontFamily: css("--font") },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { vertLine: { labelBackgroundColor: text }, horzLine: { labelBackgroundColor: text } },
     });

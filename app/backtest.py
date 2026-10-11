@@ -266,11 +266,20 @@ def start(universe: str, interval: str, fee_pct: float = 0.0, min_adtv: float = 
 
 
 def track_for(resolved: str, interval: str) -> dict | None:
-    """Cached per-symbol record from any universe that includes this symbol."""
+    """Cached per-symbol record from any universe that includes this symbol.
+
+    An EGX stock matches under either code (EGX:COMI or COMI.CA): older runs resolved them via Yahoo.
+    """
+    keys = [resolved]
+    if resolved.startswith("EGX:"):
+        keys.append(resolved[4:] + ".CA")
+    elif resolved.endswith(".CA"):
+        keys.append("EGX:" + resolved[:-3])
     for p in sorted(_dir().glob(f"backtest_*_{interval}.json")):
-        res = json.loads(p.read_text(encoding="utf-8"))
-        if resolved in res.get("perSymbol", {}):
-            return res["perSymbol"][resolved]
+        per = json.loads(p.read_text(encoding="utf-8")).get("perSymbol", {})
+        for k in keys:
+            if k in per:
+                return per[k]
     return None
 
 

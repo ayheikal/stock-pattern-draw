@@ -81,10 +81,27 @@ class Settings(BaseModel):
         return v.strip().upper()
 
 
+class SectorEvent(BaseModel):
+    """Something coming up that should move a sector: a rate decision, a new law, a contract, ..."""
+    date: date
+    title: str = Field(..., min_length=1, max_length=120)
+    impact: Literal["positive", "negative", "neutral"] = "neutral"
+
+
+class SectorView(BaseModel):
+    """My own view of a sector on the Sectors page; status None means "use the app's suggestion"."""
+    status: Optional[Literal["growth", "normal", "shallow"]] = None
+    note: str = Field("", max_length=1000)
+    events: list[SectorEvent] = Field([], max_length=30)
+    updated: Optional[date] = None
+
+
 class Profile(BaseModel):
     name: str = Field("", max_length=60)
     settings: Settings = Settings()
     entries: list[Entry] = []
+    sectors: dict[str, SectorView] = {}  # keyed by sector slug
+    inflationPct: float = Field(12.0, ge=0, le=100)  # placeholder; the Sectors page judges real growth against it
 
 
 def _path() -> Path:
@@ -133,6 +150,29 @@ def set_settings(settings: Settings) -> Profile:
         elif settings.telegramToken.strip().lower() == "clear":
             settings.telegramToken = ""
         prof.settings = settings
+        save(prof)
+    return prof
+
+
+def set_sector(slug: str, view: SectorView) -> Profile:
+    """Save my view of a sector; an empty one (no status, note or events) removes it."""
+    with _lock:
+        prof = load()
+        if view.status or view.note.strip() or view.events:
+            view.note = view.note.strip()
+            view.events = sorted(view.events, key=lambda e: e.date)
+            view.updated = date.today()
+            prof.sectors[slug] = view
+        else:
+            prof.sectors.pop(slug, None)
+        save(prof)
+    return prof
+
+
+def set_inflation(pct: float) -> Profile:
+    with _lock:
+        prof = load()
+        prof.inflationPct = pct
         save(prof)
     return prof
 

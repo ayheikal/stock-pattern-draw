@@ -5,6 +5,7 @@ technical-analysis patterns detected and drawn automatically.
 
 - **Reversal:** Head & Shoulders, Inverse H&S, Double/Triple Top & Bottom (neckline + measured-move target)
 - **Continuation:** Ascending/Descending/Symmetrical Triangles, Rising/Falling Wedges, Rectangles, Bull/Bear Flags & Pennants
+- **Broadening:** Broadening Formation (megaphone: higher highs and lower lows, breaks either way), Ascending Broadening Wedge (bearish), Descending Broadening Wedge (bullish); target = the pattern's widest point
 - **Trend:** active up/down trendlines, ascending/descending channels
 - **Support / Resistance:** horizontal levels clustered from swing points
 - **Candlesticks:** Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Morning/Evening Star, Three White Soldiers / Black Crows
@@ -38,9 +39,10 @@ Codes follow Yahoo Finance:
 
 ### Data sources
 
-Yahoo Finance is the primary source. Yahoo serves only a live quote for EGX
-indices (no history), so those — and any `.CA` or bare code Yahoo can't serve —
-are fetched from **TradingView** instead ([app/tradingview.py](app/tradingview.py)).
+EGX stocks (`.CA` or a bare code Yahoo doesn't know) and EGX indices come from
+**TradingView** ([app/tradingview.py](app/tradingview.py)): Yahoo publishes EGX
+sessions a day or more late and has no history for EGX indices. Yahoo Finance serves
+everything else, and is the fallback for an EGX stock TradingView can't find.
 
 > ⚠️ The TradingView source uses its unofficial, undocumented chart websocket.
 > TradingView's terms don't permit this kind of automated collection, and it can
@@ -57,6 +59,27 @@ EGX 33 Shariah starts in 2022.
 screen it) and the top gainers, losers and most traded stocks. The screener also gets live watchlists:
 the 80 most traded EGX stocks and one per sector. Source: TradingView's public screener (unofficial,
 delayed; see the note above).
+
+## Sector outlook
+
+`/sectors` rates each EGX sector **Growth**, **Normal** or **Shallow** (weak / shrinking) from company financials
+and upcoming events, not chart patterns. For each sector the app takes the median company's revenue and
+earnings-per-share growth (yearly, else the latest quarter) **after inflation**, and the share of companies whose
+earnings beat inflation. Growth needs two of these clearly positive, Shallow two clearly negative; anything else is
+Normal. Set the inflation rate on the page (12% is a placeholder). Each card also shows ROE, P/E and dividend yield,
+the largest companies, and upcoming results dates (next 90 days).
+
+Add your own view per sector: a status that overrides the suggestion, a note on why, and future events such as a
+rate decision, a new law or a big contract, each marked positive, negative or neutral. They're saved in your profile,
+so backups and the profile download include them. Many EGX companies don't report these figures to TradingView's
+screener, so a sector with growth figures for fewer than 3 companies shows *Not enough data*.
+
+Each sector ends with a **conclusion** that mixes the financial status with the price trend: the share of its stocks
+above their 50- and 200-day averages and its size-weighted 3-month move give Uptrend / Mixed / Downtrend. Good
+financials in an uptrend give *Favour*, and weak financials in a downtrend give *Avoid*. Mixed cases come out as
+*Accumulate*, *Watch*, *Neutral* or *Caution*. For example, good financials with falling prices give
+"Watch for a turn". The conclusion also notes an overbought or oversold median RSI and whether your own upcoming
+events lean positive or negative. Sectors are listed best conclusion first.
 
 ## Track record
 
@@ -125,7 +148,7 @@ copy or download the profile (without the Telegram token).
 
 ```
 app/
-  data.py              provider routing (Yahoo → TradingView), aliases, 5-min cache
+  data.py              provider routing (TradingView for EGX, Yahoo otherwise), aliases, 5-min cache
   tradingview.py       TradingView websocket client (EGX indices)
   outlook.py           next-period expectation built from patterns, trend, RSI and levels
   pivots.py            ATR + swing-point (zigzag) detection shared by all detectors

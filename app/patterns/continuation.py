@@ -18,10 +18,17 @@ def _fit(points: list[Pivot]) -> tuple[float, float, float]:
     return float(m), float(b), float(np.max(np.abs(y - (m * x + b))))
 
 
-def _classify(du: float, dl: float, conv: bool, par: bool) -> tuple[str, str, str] | None:
+def _classify(du: float, dl: float, conv: bool, par: bool, div: bool = False) -> tuple[str, str, str] | None:
     uf, lf = abs(du) < FLAT, abs(dl) < FLAT
     if uf and lf:
         return "Rectangle", "continuation", "neutral"
+    if div:  # boundaries spreading apart: swings growing wider
+        if du > 0 and dl > 0 and not lf:
+            return "Ascending Broadening Wedge", "continuation", "bearish"
+        if du < 0 and dl < 0 and not uf:
+            return "Descending Broadening Wedge", "continuation", "bullish"
+        # higher highs and lower lows (or one side flat): the megaphone, which can break either way
+        return "Broadening Formation", "continuation", "neutral"
     if conv:
         if uf and dl > 0:
             return "Ascending Triangle", "continuation", "bullish"
@@ -45,6 +52,9 @@ LABELS = {
     "Symmetrical Triangle": "Sym Tri",
     "Rising Wedge": "R Wedge",
     "Falling Wedge": "F Wedge",
+    "Broadening Formation": "Broad",
+    "Ascending Broadening Wedge": "Asc Broad W",
+    "Descending Broadening Wedge": "Desc Broad W",
     "Ascending Channel": "Asc Ch",
     "Descending Channel": "Desc Ch",
 }
@@ -75,7 +85,12 @@ def detect_geometric(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> lis
                 continue
             w0 = (mu - ml) * start + (bu - bl)
             w1 = (mu - ml) * end + (bu - bl)
-            if w0 <= a or w1 <= 0.3 * a:
+            div = w1 > 1.33 * w0
+            if div:
+                # broadening starts narrow and ends wide; it needs 5+ swings to show the widening
+                if w0 <= 0.3 * a or w1 <= a or len(hs) + len(ls) < 5:
+                    continue
+            elif w0 <= a or w1 <= 0.3 * a:
                 continue
             xs = np.arange(start, end + 1)
             viol = np.mean((high[xs] > mu * xs + bu + 0.5 * a) | (low[xs] < ml * xs + bl - 0.5 * a))
@@ -87,7 +102,7 @@ def detect_geometric(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> lis
             du, dl = mu * length / a, ml * length / a
             conv = w1 < 0.75 * w0
             par = 0.8 * w0 <= w1 <= 1.25 * w0
-            cls = _classify(du, dl, conv, par)
+            cls = _classify(du, dl, conv, par, div)
             if cls is None:
                 continue
             name, category, direction = cls
@@ -112,7 +127,8 @@ def detect_geometric(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> lis
 
             target = None
             if category == "continuation" and direction != "neutral":
-                target = project(mu * p_end + bu, w0, True) if direction == "bullish" else project(ml * p_end + bl, w0, False)
+                height = w1 if div else w0  # measured move: the pattern's widest point
+                target = project(mu * p_end + bu, height, True) if direction == "bullish" else project(ml * p_end + bl, height, False)
 
             touches = len(hs) + len(ls)
             fit_q = 1 - max(ru, rl) / tol

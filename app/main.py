@@ -317,6 +317,41 @@ def api_market():
     return overview(market, indices)
 
 
+def _sectors_payload(prof: profile.Profile) -> dict:
+    from datetime import date as _date
+
+    from .egx import fetch_fundamentals, sector_outlook
+    try:
+        funds = fetch_fundamentals()
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't load EGX company financials: {str(e)[:120]}")
+    return {"asOf": funds["asOf"]} | sector_outlook(funds["stocks"], prof.inflationPct, prof.sectors, _date.today())
+
+
+@app.get("/api/sectors")
+def api_sectors():
+    """Growth / Normal / Shallow per EGX sector from company financials, merged with my own views and events."""
+    return _sectors_payload(profile.load())
+
+
+@app.put("/api/sectors/settings/inflation")
+def api_sectors_inflation(body: dict):
+    try:
+        pct = float(body.get("inflationPct"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "inflationPct must be a number")
+    if not 0 <= pct <= 100:
+        raise HTTPException(400, "inflationPct must be between 0 and 100")
+    return _sectors_payload(profile.set_inflation(pct))
+
+
+@app.put("/api/sectors/{slug}")
+def api_sector_view(slug: str, view: profile.SectorView):
+    if not slug or len(slug) > 60:
+        raise HTTPException(400, "bad sector")
+    return _sectors_payload(profile.set_sector(slug, view))
+
+
 @app.get("/api/alerts/status")
 def api_alerts_status():
     s = profile.load().settings
@@ -384,6 +419,11 @@ def market_page():
 @app.get("/track")
 def track_page():
     return FileResponse(STATIC / "track.html")
+
+
+@app.get("/sectors")
+def sectors_page():
+    return FileResponse(STATIC / "sectors.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

@@ -57,10 +57,23 @@ def test_reversal_patterns(path, expected):
         (LEAD_DOWN + [(8, 110), (6, 126), (6, 110), (6, 121), (6, 110), (5, 116), (5, 110), (8, 95)], "Descending Triangle"),
         (LEAD_UP + [(8, 130), (7, 102), (7, 126), (6, 106), (6, 122), (5, 110), (5, 118), (8, 135)], "Symmetrical Triangle"),
         (LEAD_UP + [(8, 115), (6, 100), (6, 115), (6, 100), (6, 115), (6, 100), (6, 115), (10, 130)], "Rectangle"),
+        (LEAD_UP + [(6, 108), (6, 102), (7, 112), (7, 98), (8, 116), (8, 94), (9, 120), (9, 92), (10, 135)], "Broadening Formation"),
+        (LEAD_UP + [(6, 106), (6, 103), (7, 112), (7, 105), (8, 120), (8, 107), (9, 128), (9, 109), (10, 95)], "Ascending Broadening Wedge"),
+        (LEAD_DOWN + [(6, 126), (6, 129), (7, 120), (7, 127), (8, 112), (8, 125), (9, 104), (9, 123), (10, 140)], "Descending Broadening Wedge"),
     ],
 )
 def test_geometric_patterns(path, expected):
     assert expected in names(make_ohlc(path))
+
+
+def test_broadening_breaks_either_way_and_targets_its_widest_point():
+    up = LEAD_UP + [(6, 108), (6, 102), (7, 112), (7, 98), (8, 116), (8, 94), (9, 120), (9, 92), (10, 135)]
+    down = LEAD_DOWN + [(6, 132), (6, 126), (7, 136), (7, 122), (8, 140), (8, 118), (9, 144), (9, 116), (10, 100)]
+    for path, direction in ((up, "bullish"), (down, "bearish")):
+        p = next(p for p in analyze(make_ohlc(path))[0] if p.name == "Broadening Formation")
+        assert p.direction == direction and p.confirmed
+        top, bottom = p.lines[0][-1][1], p.lines[1][-1][1]
+        assert p.target == pytest.approx(top + (top - bottom) if direction == "bullish" else bottom - (top - bottom), rel=0.15)
 
 
 def test_bull_and_bear_flags():
@@ -159,10 +172,11 @@ def test_symbol_routing(typed, first):
     assert candidates(typed)[0] == first
 
 
-def test_egx_stock_falls_back_to_tradingview():
+def test_egx_stock_prefers_tradingview():
     from app.data import candidates
 
-    assert candidates("COMI.CA") == [("yahoo", "COMI.CA"), ("tv", "EGX:COMI")]
+    assert candidates("COMI.CA") == [("tv", "EGX:COMI"), ("yahoo", "COMI.CA")]
+    assert candidates("COMI")[:2] == [("yahoo", "COMI"), ("tv", "EGX:COMI")]
 
 
 def _outlook(df, interval="1d"):
