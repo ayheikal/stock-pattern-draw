@@ -21,6 +21,14 @@
       const saved = JSON.parse(localStorage.getItem("screener") || "{}");
       for (const k of ["universe", "symbols", "minScore", "minAdtv", "interval"]) if (saved[k] != null) $(k).value = saved[k];
     } catch (_) {}
+    syncWatchlist();
+  }
+
+  // Typed symbols override the watchlist, so grey it out while they're there.
+  function syncWatchlist() {
+    const own = !!$("symbols").value.trim();
+    $("universe").disabled = own;
+    $("universe").title = own ? "Ignored while your own symbols are filled in" : "";
   }
 
   async function scan() {
@@ -39,10 +47,11 @@
       state.interval = params.interval;
       state.sortKey = null;
       $("found").textContent = body.results.length;
+      $("found").hidden = false;
       $("scanInfo").textContent = `${body.scanned} scanned in ${((performance.now() - t0) / 1000).toFixed(1)}s`
         + (body.skipped.length ? ` · skipped (no data): ${body.skipped.join(", ")}` : "");
       renderTable();
-      setStatus(body.results.length ? "" : "No symbol in this list has a bullish outlook right now.");
+      setStatus(body.results.length ? "" : "No symbol in this list passes the filters right now. Try a looser <b>Outlook</b> or <b>Liquidity</b> setting, or another watchlist.");
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
     } finally {
@@ -84,6 +93,7 @@
   }
 
   $("scan").addEventListener("submit", (e) => { e.preventDefault(); scan(); });
+  $("symbols").addEventListener("input", syncWatchlist);
   document.querySelector("#results thead").addEventListener("click", (e) => {
     const th = e.target.closest("th[data-k]");
     if (!th) return;
@@ -111,6 +121,7 @@
     if (u && [...$("universe").options].some((o) => o.value === u)) {
       $("universe").value = u;
       $("symbols").value = "";
+      syncWatchlist();
       scan();
     }
   });

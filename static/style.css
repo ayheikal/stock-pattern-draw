@@ -117,7 +117,8 @@ a { color: var(--accent); }
 .screener-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .screener-head h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 0; display: flex; align-items: center; gap: 8px; }
 .screener-head #meta { font-size: 13px; }
-.status.inline { position: static; transform: none; margin: 12px 0; border-radius: var(--radius); }
+/* display: block, not flex: as flex items, "press <b>Scan</b>" loses the space between them */
+.status.inline { position: static; display: block; transform: none; margin: 12px 0; border-radius: var(--radius); }
 .table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .table-wrap:has(table[hidden]) { display: none; }
 :is(#results, table.data) { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
@@ -168,6 +169,7 @@ a { color: var(--accent); }
   transition: background .15s, border-color .15s;
 }
 .icon-btn:hover { background: var(--hover); border-color: var(--accent); }
+.topbar > .icon-btn { margin-left: auto; }
 
 /* Shared form controls and buttons */
 select, input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea { transition: border-color .15s, box-shadow .15s; }
@@ -490,6 +492,12 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .settings-bar .suffix input { width: 70px; }
 .settings-bar button { font: inherit; border: 1px solid transparent; background: var(--btn); color: #fff; font-weight: 600; border-radius: var(--radius-sm); padding: 8px 18px; cursor: pointer; }
 .settings-bar .rule-hint { flex-basis: 100%; margin: 0; }
+.scan-bar select { font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; }
+.scan-bar .grow { flex: 1 1 200px; }
+.scan-bar .grow input { width: 100%; text-transform: uppercase; }
+.scan-bar .grow input::placeholder { text-transform: none; }
+.scan-bar select:disabled { opacity: .5; cursor: not-allowed; }
+.scan-bar button:disabled { opacity: .6; cursor: wait; }
 .card-body > .money { grid-column: 1 / -1; line-height: 1.55; }
 .card-block.money .stp { color: var(--bear); }
 .plan-size { margin-top: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; line-height: 1.55; }
@@ -498,7 +506,10 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .plan-size .stp { color: var(--bear); }
 @media (max-width: 640px) {
   .settings-bar label { flex: 1 1 130px; }
-  .settings-bar input, .settings-bar .suffix input { width: 100%; }
+  .settings-bar input, .settings-bar .suffix input, .scan-bar select { width: 100%; }
+  .scan-bar label { min-width: 0; }
+  .scan-bar label:has(#universe), .scan-bar .grow { flex-basis: 100%; }
+  .scan-bar button { flex: 1 1 100%; }
 }
 
 /* --- Buy / Hold / Sell --- */
@@ -615,6 +626,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .profile-btn:disabled { opacity: .6; cursor: wait; }
 .profile-btn.in { background: color-mix(in srgb, var(--bull) 12%, transparent); color: var(--bull); border-color: transparent; }
 .profile-btn.in:hover { background: var(--hover); }
+.profile-btn.ghost { background: var(--panel); color: var(--text); border-color: var(--border); }
+.profile-btn.ghost:hover { background: var(--hover); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.profile-btn[hidden] { display: none; }
 .title-row .down { color: var(--bear); }
 
 /* --- Sectors: outlook from financials and events --- */

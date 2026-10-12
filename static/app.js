@@ -372,6 +372,31 @@
     });
   }
 
+  // ---------- "Open in TradingView" ----------
+  // Turns the loaded (Yahoo-style) symbol into a TradingView code: COMI.CA → EGX:COMI, ^GSPC → SP:SPX, GC=F → COMEX:GC1!.
+  const TV_INDICES = { "^GSPC": "SP:SPX", "^NDX": "NASDAQ:NDX", "^IXIC": "NASDAQ:IXIC", "^DJI": "DJ:DJI", "^RUT": "TVC:RUT", "^VIX": "TVC:VIX", "^FTSE": "TVC:UKX", "^GDAXI": "XETR:DAX", "^N225": "TVC:NI225" };
+  const TV_FUTURES = { GC: "COMEX:GC1!", SI: "COMEX:SI1!", HG: "COMEX:HG1!", CL: "NYMEX:CL1!", NG: "NYMEX:NG1!", BZ: "NYMEX:BB1!" };
+  const TV_SUFFIX = { CA: "EGX", L: "LSE", DE: "XETR", PA: "EURONEXT", AS: "EURONEXT", TO: "TSX", HK: "HKEX", T: "TSE", AX: "ASX", SR: "TADAWUL" };
+  const TV_INTERVAL = { "1h": "60", "1d": "D", "1wk": "W", "1mo": "M" };
+  function tradingViewSymbol(s) {
+    if (s.includes(":")) return s;
+    if (TV_INDICES[s]) return TV_INDICES[s];
+    if (s.endsWith("=F")) return TV_FUTURES[s.slice(0, -2)] || `${s.slice(0, -2)}1!`;
+    if (s.endsWith("=X")) return `FX:${s.slice(0, -2)}`;
+    if (/^[A-Z0-9]+-USDT?$/.test(s)) return s.replace("-", "");
+    if (/^[A-Z]+-[A-Z]$/.test(s)) return s.replace("-", "."); // share class: BRK-B → BRK.B
+    const m = s.match(/^(.+)\.([A-Z]{1,2})$/);
+    if (m && TV_SUFFIX[m[2]]) return `${TV_SUFFIX[m[2]]}:${m[1]}`;
+    return s.replace(/^\^/, "");
+  }
+  function updateTradingViewLink(symbol, interval) {
+    const a = $("tvLink");
+    const tv = tradingViewSymbol(symbol);
+    a.href = `https://www.tradingview.com/chart/?${new URLSearchParams({ symbol: tv, interval: TV_INTERVAL[interval] || "D" })}`;
+    a.title = `Open ${tv} on tradingview.com in a new tab`;
+    a.hidden = false;
+  }
+
   async function load(symbol, interval, period, push = true) {
     symbol = symbol.trim().toUpperCase();
     if (!symbol) return;
@@ -409,6 +434,7 @@
       renderOutlook(body.outlook);
       render();
       setStatus("");
+      updateTradingViewLink(body.symbol, interval);
       renderProfileButton(symbol);
     } catch (err) {
       setStatus(escapeHtml(err.message), true);

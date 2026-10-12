@@ -20,34 +20,41 @@
   <header class="topbar">
     <a class="brand" href="/">📐 Pattern Charts</a>
     <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors">Sectors</a><a href="/screener" class="current">Screener</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
-    <form id="scan" class="search" autocomplete="off">
-      <select id="universe" title="Watchlist"></select>
-      <input id="symbols" placeholder="…or your own list: COMI.CA, EGX30, AAPL" title="Comma-separated symbols (overrides the watchlist)" />
-      <select id="minScore" title="Minimum outlook">
-        <option value="0.4" selected>Mildly bullish or better</option>
-        <option value="1.2">Bullish only</option>
-      </select>
-      <select id="minAdtv" title="Skip stocks that trade less than this value a day (thin stocks are hard to exit)">
-        <option value="0">Any liquidity</option>
-        <option value="1000000">Trades 1M+ a day</option>
-        <option value="5000000" selected>Trades 5M+ a day</option>
-        <option value="20000000">Trades 20M+ a day</option>
-      </select>
-      <select id="interval" title="Bar interval">
-        <option value="1d" selected>Daily</option>
-        <option value="1wk">Weekly</option>
-      </select>
-      <button type="submit">Scan</button>
-    </form>
     <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
   </header>
 
   <main class="screener">
     <div class="screener-head">
-      <h1>Bullish list <span id="found" class="badge">0</span></h1>
+      <h1>Bullish list <span id="found" class="badge" hidden>0</span></h1>
       <div id="scanInfo" class="muted"></div>
     </div>
-    <div id="scanStatus" class="status inline">Pick a watchlist and press <b>Scan</b>.</div>
+
+    <form id="scan" class="settings-bar scan-bar" autocomplete="off">
+      <label>Watchlist
+        <select id="universe"></select></label>
+      <label class="grow">Or your own symbols
+        <input id="symbols" placeholder="COMI.CA, EGX30, AAPL" title="Comma-separated symbols. When filled, the watchlist is ignored." /></label>
+      <label>Outlook
+        <select id="minScore">
+          <option value="0.4" selected>Mildly bullish or better</option>
+          <option value="1.2">Bullish only</option>
+        </select></label>
+      <label title="Skip stocks that trade less than this value a day (thin stocks are hard to exit)">Liquidity
+        <select id="minAdtv">
+          <option value="0">Any</option>
+          <option value="1000000">1M+ a day</option>
+          <option value="5000000" selected>5M+ a day</option>
+          <option value="20000000">20M+ a day</option>
+        </select></label>
+      <label>Bars
+        <select id="interval">
+          <option value="1d" selected>Daily</option>
+          <option value="1wk">Weekly</option>
+        </select></label>
+      <button type="submit">Scan</button>
+    </form>
+
+    <div id="scanStatus" class="status inline">Pick a watchlist, or type your own symbols, then press <b>Scan</b>.</div>
     <div class="table-wrap">
       <table id="results" hidden>
         <thead>
