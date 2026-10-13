@@ -81,6 +81,18 @@ financials in an uptrend give *Favour*, and weak financials in a downtrend give 
 "Watch for a turn". The conclusion also notes an overbought or oversold median RSI and whether your own upcoming
 events lean positive or negative. Sectors are listed best conclusion first.
 
+## Halal (Shariah-compliant) tag
+
+Stocks get a **Halal** tag on the chart, in the screener, on the Market page and in My profile. TradingView doesn't
+publish who is in the EGX 33 Shariah index, so the list comes from you: in My profile → *Halal (Shariah) list*, paste
+the current members from EGX's website, either as codes (`ABUK.CA`, `EGX:ABUK`, `ABUK`) or as the whole constituents table
+(ISINs are matched against the live EGX list). EGX reviews the index every six months, and a list older than that is
+flagged as possibly out of date.
+
+A stock that isn't on the list isn't tagged *Not halal*, since the index only holds the most liquid compliant stocks.
+Tag any stock yourself from its chart (*Mark halal* / *Mark not halal*); your tag wins over the list. The screener has a
+**Halal only** filter and a *Halal: Shariah list + my tags* watchlist. All of it is saved in your profile and backups.
+
 ## Track record
 
 `/track` measures whether the outlook has actually worked. For each symbol in a watchlist it replays the

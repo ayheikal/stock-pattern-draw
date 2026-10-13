@@ -82,6 +82,26 @@
         </div>
       </details>
 
+      <details class="settings-group" id="shariahGroup">
+        <summary>Halal (Shariah) list <span class="muted small" id="shariahSummary"></span></summary>
+        <p class="muted small">Paste the current members of the <b>EGX 33 Shariah Index</b> from EGX's website: codes like <code>XXXX.CA</code>,
+          or the whole constituents table (ISINs are matched too). Stocks on it get a <span class="halal">Halal</span> tag on the chart, screener, market page and here.
+          EGX reviews the list every six months, so paste the new one when it changes. A stock that isn't on the list may still be compliant
+          (the index only holds the most liquid ones), so it stays untagged unless you tag it yourself from its chart.</p>
+        <div class="group-fields">
+          <label class="wide">Members<textarea id="shariahText" rows="3" placeholder="XXXX.CA, YYYY.CA, … or paste the table from EGX"></textarea></label>
+          <label title="When this version of the list took effect">List date<input id="shariahDate" type="date" /></label>
+        </div>
+        <div class="alert-actions">
+          <button type="button" id="shariahSave">Save list</button>
+          <button type="button" id="shariahClear">Clear list</button>
+          <span id="shariahStatus" class="muted small"></span>
+        </div>
+        <div id="shariahList" class="shariah-chips"></div>
+        <div class="muted small">My own tags (set from a stock's chart; they win over the list):</div>
+        <div id="shariahTags" class="shariah-chips"></div>
+      </details>
+
       <details class="settings-group">
         <summary>Telegram alerts <span class="muted small" id="alertsSummary"></span></summary>
         <div class="group-fields">

@@ -10,6 +10,9 @@
   const pct = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
   const cls = (v) => (v == null ? "" : v >= 0 ? "up" : "down");
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const halalBadge = (h) => (!h ? "" : h.status === "halal"
+    ? `<span class="halal${h.source === "mine" ? " mine" : ""}" title="${h.source === "mine" ? "Halal: your own tag" : "In the EGX 33 Shariah list"}">Halal</span>`
+    : '<span class="halal not mine" title="Not halal: your own tag">Not halal</span>');
 
   function setStatus(msg, isError = false) {
     const el = $("status");
@@ -255,6 +258,42 @@
     } catch (_) {}
   }
 
+  // Halal list: the EGX 33 Shariah members I pasted in, and my own tags.
+  async function refreshShariah(b) {
+    try {
+      b = b || await api("/api/shariah");
+      state.shariahList = b;
+      const n = b.symbols.length, t = b.tags.length;
+      $("shariahSummary").innerHTML = [n ? `${n} stocks${b.listDate ? ` · list from ${escapeHtml(b.listDate)}` : ""}` : "no list yet",
+        t ? `${t} own tag${t === 1 ? "" : "s"}` : "", b.stale ? '<span class="down">may be out of date</span>' : ""].filter(Boolean).join(" · ");
+      if (b.listDate) $("shariahDate").value = b.listDate;
+      const chip = (x, act, label) => `<span class="chip" title="${escapeHtml(x.name || x.symbol)}">${label}<button type="button" data-act="${act}" data-symbol="${escapeHtml(x.symbol)}" aria-label="Remove ${escapeHtml(x.symbol)}">×</button></span>`;
+      $("shariahList").innerHTML = b.symbols.map((x) => chip(x, "unlist", escapeHtml(x.symbol.replace(/\.CA$/, "")))).join("");
+      $("shariahTags").innerHTML = b.tags.map((x) => chip(x, "untag", `${escapeHtml(x.symbol)} ${halalBadge({ status: x.status, source: "mine" })}`)).join("")
+        || '<span class="muted small">None.</span>';
+      return b;
+    } catch (_) {}
+  }
+
+  async function saveShariah(text) {
+    const btn = $("shariahSave");
+    btn.disabled = true;
+    $("shariahStatus").textContent = "Saving…";
+    try {
+      const b = await api("/api/shariah/list", { method: "PUT", body: JSON.stringify({ text, listDate: $("shariahDate").value || null }) });
+      await refreshShariah(b);
+      $("shariahText").value = "";
+      $("shariahStatus").innerHTML = [b.symbols.length ? `Saved ${b.symbols.length} stocks ✓` : "List cleared ✓",
+        b.unknown?.length ? `<span class="down">Not recognised: ${escapeHtml(b.unknown.join(", "))}</span>` : "",
+        b.checked === false ? "Couldn't reach the EGX stock list, so the codes weren't checked." : ""].filter(Boolean).join(" · ");
+      load();
+    } catch (err) {
+      $("shariahStatus").innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   async function refreshAlertStatus() {
     try {
       const a = await api("/api/alerts/status");
@@ -375,7 +414,7 @@
         <header class="card-head" data-act="toggle" title="${open ? "Hide details" : "Show details"}">
           <button type="button" class="chev" data-act="toggle" aria-expanded="${open}" aria-label="Toggle details">▸</button>
           <div class="head-main">
-            <a class="sym" href="${chartUrl}">${escapeHtml(e.symbol)}</a>${e.action ? ` <span class="act ${e.action.tone}" title="${escapeHtml(e.action.group)}">${escapeHtml(e.action.action)}</span>` : ""}
+            <a class="sym" href="${chartUrl}">${escapeHtml(e.symbol)}</a>${e.action ? ` <span class="act ${e.action.tone}" title="${escapeHtml(e.action.group)}">${escapeHtml(e.action.action)}</span>` : ""} ${halalBadge(e.halal)}
             <div class="muted small">${escapeHtml(e.name || "")}</div>
           </div>
           <div class="price">
@@ -469,6 +508,31 @@
       $("alertStatus").innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`;
     }
   }
+  $("shariahSave").addEventListener("click", () => {
+    const text = $("shariahText").value.trim();
+    if (!text) { $("shariahStatus").textContent = "Paste the list first."; return; }
+    saveShariah(text);
+  });
+  $("shariahClear").addEventListener("click", () => {
+    if (confirm("Remove the saved EGX 33 Shariah list? Your own tags are kept.")) saveShariah("");
+  });
+  $("shariahGroup").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-act]");
+    if (!btn) return;
+    const sym = btn.dataset.symbol;
+    try {
+      if (btn.dataset.act === "unlist") {
+        const rest = state.shariahList.symbols.map((x) => x.symbol).filter((x) => x !== sym);
+        if (!rest.length) return saveShariah("");
+        await saveShariah(rest.join(", "));
+      } else {
+        await refreshShariah(await api("/api/shariah/tag", { method: "PUT", body: JSON.stringify({ symbol: sym, status: null }) }));
+        load();
+      }
+    } catch (err) {
+      $("shariahStatus").innerHTML = `<span class="down">${escapeHtml(err.message)}</span>`;
+    }
+  });
   $("alertTest").addEventListener("click", () => alertAction("/api/alerts/test", "Test message sent ✓ Check Telegram."));
   $("alertCheck").addEventListener("click", () => alertAction("/api/alerts/check"));
 
@@ -595,6 +659,7 @@
   });
 
   load();
+  refreshShariah();
   refreshAlertStatus();
   refreshBackups();
   refreshPhone();

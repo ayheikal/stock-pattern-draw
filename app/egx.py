@@ -14,7 +14,8 @@ import httpx
 from cachetools import TTLCache
 
 SCAN_URL = "https://scanner.tradingview.com/egypt/scan"
-COLUMNS = ["name", "description", "sector", "close", "change", "volume", "Value.Traded", "market_cap_basic", "SMA50", "SMA200"]
+COLUMNS = ["name", "description", "sector", "close", "change", "volume", "Value.Traded", "market_cap_basic", "SMA50", "SMA200",
+           "isin"]
 _cache: TTLCache = TTLCache(maxsize=4, ttl=300)
 _lock = threading.Lock()
 
@@ -46,6 +47,7 @@ def fetch_market() -> dict:
             "marketCap": _num(d["market_cap_basic"]),
             "sma50": _num(d["SMA50"]),
             "sma200": _num(d["SMA200"]),
+            "isin": d["isin"] or None,  # matches the codes in EGX's own index files
         })
     out = {"asOf": int(time.time()), "stocks": stocks}
     with _lock:

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
-from . import access, alerts, backtest, profile
+from . import access, alerts, backtest, profile, shariah
 from .outlook import build_outlook
 from .patterns import analyze
 from .screener import MAX_SYMBOLS, adtv, all_universes, get_universe, scan
@@ -142,6 +142,7 @@ def api_analyze(
         "patterns": out_patterns,
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
         "outlook": build_outlook(df, patterns, levels, interval, float(sma.iloc[-1]) if pd.notna(sma.iloc[-1]) else None),
+        "halal": shariah.status(profile.load().shariah, resolved) if meta.get("currency") else None,
     }
 
 
@@ -158,6 +159,7 @@ def api_screen(
     period: str = Query("1y"),
     min_score: float = Query(0.4, description="0.4 = mildly bullish, 1.2 = bullish"),
     min_adtv: float = Query(0, ge=0, description="Skip stocks trading less than this value a day"),
+    halal_only: bool = Query(False, description="Only stocks on my halal list or tagged halal"),
 ):
     if interval not in VALID_INTERVALS or period not in VALID_PERIODS:
         raise HTTPException(400, "invalid interval or period")
@@ -169,7 +171,13 @@ def api_screen(
         raise HTTPException(400, f"unknown universe '{universe}'")
     if len(syms) > MAX_SYMBOLS:
         raise HTTPException(400, f"at most {MAX_SYMBOLS} symbols per scan")
-    return scan(syms, interval, period, min_score, min_adtv)
+    out = scan(syms, interval, period, min_score, min_adtv)
+    sh = profile.load().shariah
+    for r in out["results"]:
+        r["halal"] = shariah.status(sh, r["symbol"]) if r.get("currency") else None
+    if halal_only:
+        out["results"] = [r for r in out["results"] if (r["halal"] or {}).get("status") == "halal"]
+    return out
 
 
 @app.get("/api/profile")
@@ -314,7 +322,65 @@ def api_market():
         raise HTTPException(502, f"Couldn't load the EGX market snapshot: {str(e)[:120]}")
     with ThreadPoolExecutor(max_workers=4) as pool:
         indices = list(pool.map(lambda x: _index_card(*x), INDICES))
-    return overview(market, indices)
+    out = overview(market, indices)
+    sh = profile.load().shariah
+    for k in ("gainers", "losers", "active"):
+        for r in out[k]:
+            r["halal"] = shariah.status(sh, r["symbol"])
+    return out
+
+
+def _shariah_payload(prof: profile.Profile, **extra) -> dict:
+    """My halal list with company names (when the market snapshot loads) and my own tags."""
+    from datetime import date as _date
+
+    from .egx import fetch_market
+    try:
+        names = {s["symbol"]: s["name"] for s in fetch_market()["stocks"]}
+    except Exception:
+        names = {}
+    sh = prof.shariah
+    return {"symbols": [{"symbol": s, "name": names.get(s, "")} for s in sh.symbols],
+            "listDate": sh.listDate and sh.listDate.isoformat(), "stale": shariah.is_stale(sh.listDate, _date.today()),
+            "tags": [{"symbol": s, "name": names.get(s, ""), "status": v} for s, v in sorted(sh.tags.items())]} | extra
+
+
+@app.get("/api/shariah")
+def api_shariah():
+    return _shariah_payload(profile.load())
+
+
+@app.put("/api/shariah/list")
+def api_shariah_list(body: dict):
+    """Replace the EGX 33 Shariah list with codes pasted from EGX (a list, or a copied table); empty clears it."""
+    from datetime import date as _date
+
+    from .egx import fetch_market
+    text = str(body.get("text") or "")[:50_000]
+    try:
+        list_date = _date.fromisoformat(body["listDate"]) if body.get("listDate") else _date.today()
+    except ValueError:
+        raise HTTPException(400, "listDate must be YYYY-MM-DD")
+    try:
+        market = fetch_market()["stocks"]
+    except Exception:
+        market = None  # offline: take the codes as typed
+    symbols, unknown = shariah.parse_list(text, market)
+    if text.strip() and not symbols:
+        raise HTTPException(400, "No EGX stock codes found. Paste codes like COMI.CA, or copy the table from EGX's website.")
+    return _shariah_payload(profile.set_shariah_list(symbols, list_date), unknown=unknown, checked=market is not None)
+
+
+@app.put("/api/shariah/tag")
+def api_shariah_tag(body: dict):
+    """Tag one stock halal / not halal myself ({"symbol", "status": "halal" | "not" | null})."""
+    symbol, status = str(body.get("symbol") or "").strip(), body.get("status")
+    if not symbol or len(symbol) > 32:
+        raise HTTPException(400, "symbol is required")
+    if status not in ("halal", "not", None):
+        raise HTTPException(400, "status must be halal, not or null")
+    prof = profile.set_halal_tag(symbol, status)
+    return _shariah_payload(prof, halal=shariah.status(prof.shariah, symbol))
 
 
 def _sectors_payload(prof: profile.Profile) -> dict:

@@ -5,6 +5,9 @@
   const fmt = (v) => (v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: Math.abs(v) >= 1 ? 2 : 5 }));
   const compact = (v) => (v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : `${Math.round(v)}`);
   const pct = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+  const halalBadge = (h) => (!h ? "" : h.status === "halal"
+    ? `<span class="halal${h.source === "mine" ? " mine" : ""}" title="${h.source === "mine" ? "Halal: your own tag" : "In the EGX 33 Shariah list"}">Halal</span>`
+    : '<span class="halal not mine" title="Not halal: your own tag">Not halal</span>');
 
   function setStatus(msg, isError = false) {
     const el = $("scanStatus");
@@ -20,6 +23,7 @@
     try {
       const saved = JSON.parse(localStorage.getItem("screener") || "{}");
       for (const k of ["universe", "symbols", "minScore", "minAdtv", "interval"]) if (saved[k] != null) $(k).value = saved[k];
+      $("halalOnly").checked = !!saved.halalOnly;
     } catch (_) {}
     syncWatchlist();
   }
@@ -33,8 +37,8 @@
 
   async function scan() {
     const btn = document.querySelector("#scan button");
-    const params = { universe: $("universe").value, symbols: $("symbols").value.trim(), min_score: $("minScore").value, min_adtv: $("minAdtv").value, interval: $("interval").value, period: $("interval").value === "1wk" ? "5y" : "1y" };
-    try { localStorage.setItem("screener", JSON.stringify({ universe: params.universe, symbols: params.symbols, minScore: params.min_score, minAdtv: params.min_adtv, interval: params.interval })); } catch (_) {}
+    const params = { universe: $("universe").value, symbols: $("symbols").value.trim(), min_score: $("minScore").value, min_adtv: $("minAdtv").value, interval: $("interval").value, period: $("interval").value === "1wk" ? "5y" : "1y", halal_only: $("halalOnly").checked };
+    try { localStorage.setItem("screener", JSON.stringify({ universe: params.universe, symbols: params.symbols, minScore: params.min_score, minAdtv: params.min_adtv, interval: params.interval, halalOnly: params.halal_only })); } catch (_) {}
     btn.disabled = true;
     setStatus("Scanning… this can take a few seconds per dozen symbols.");
     $("results").hidden = true;
@@ -51,7 +55,8 @@
       $("scanInfo").textContent = `${body.scanned} scanned in ${((performance.now() - t0) / 1000).toFixed(1)}s`
         + (body.skipped.length ? ` · skipped (no data): ${body.skipped.join(", ")}` : "");
       renderTable();
-      setStatus(body.results.length ? "" : "No symbol in this list passes the filters right now. Try a looser <b>Outlook</b> or <b>Liquidity</b> setting, or another watchlist.");
+      setStatus(body.results.length ? "" : "No symbol in this list passes the filters right now. Try a looser <b>Outlook</b> or <b>Liquidity</b> setting, or another watchlist."
+        + (params.halal_only ? " <b>Halal only</b> needs the EGX 33 Shariah list in <a href=\"/profile\">My profile</a>, or stocks you tagged halal." : ""));
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
     } finally {
@@ -76,7 +81,7 @@
     });
     $("results").querySelector("tbody").innerHTML = rows.map((r) => `
       <tr data-symbol="${escapeHtml(r.symbol)}">
-        <td><div class="sym">${escapeHtml(r.symbol)}</div><div class="muted small">${escapeHtml(r.name)}</div></td>
+        <td><div class="sym">${escapeHtml(r.symbol)} ${halalBadge(r.halal)}</div><div class="muted small">${escapeHtml(r.name)}</div></td>
         <td class="num">${fmt(r.last)}</td>
         <td class="num ${r.changePct >= 0 ? "up" : "down"}">${pct(r.changePct)}</td>
         <td class="num"><span class="bias ${/bullish/i.test(r.bias) ? "bullish" : ""}">${escapeHtml(r.bias)}</span> <span class="muted small">${r.score.toFixed(2)}</span></td>

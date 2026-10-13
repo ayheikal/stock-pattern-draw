@@ -37,18 +37,30 @@ UNIVERSES: dict[str, dict] = {
 MAX_SYMBOLS = 80
 
 
+def halal_universe() -> dict[str, dict]:
+    """My halal stocks (EGX 33 Shariah list plus my own tags), if I've set any."""
+    from . import profile, shariah
+    syms = shariah.halal_symbols(profile.load().shariah)
+    return {"egx_shariah": {"label": "Halal: Shariah list + my tags", "symbols": syms[:MAX_SYMBOLS]}} if syms else {}
+
+
 def all_universes() -> dict[str, dict]:
-    """Built-in watchlists plus live EGX ones (most traded, per sector); built-ins only if offline."""
+    """Built-in watchlists, my halal list, and live EGX ones (most traded, per sector; skipped if offline)."""
     try:
         from .egx import universes as egx_universes
-        return UNIVERSES | egx_universes(MAX_SYMBOLS)
+        live = egx_universes(MAX_SYMBOLS)
     except Exception:
-        return dict(UNIVERSES)
+        live = {}
+    return UNIVERSES | halal_universe() | live
 
 
 def get_universe(key: str) -> dict | None:
-    # Built-ins first: no network needed for them.
-    return UNIVERSES.get(key) or (all_universes().get(key) if key.startswith("egx_") else None)
+    # Built-ins and my halal list first: no network needed for them.
+    if key in UNIVERSES:
+        return UNIVERSES[key]
+    if key == "egx_shariah":
+        return halal_universe().get(key)
+    return all_universes().get(key) if key.startswith("egx_") else None
 
 
 def adtv(df, interval: str, currency: str | None) -> float | None:

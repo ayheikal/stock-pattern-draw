@@ -336,6 +336,36 @@
   const profileSymbol = (d, typed) => (!d.currency ? typed : d.symbol.startsWith("EGX:") ? `${d.symbol.slice(4)}.CA` : d.symbol);
   const canon = (s) => String(s || "").toUpperCase().replace(/^EGX:(.+)$/, "$1.CA");
 
+  // Halal tag (stocks only): from the EGX 33 Shariah list in My profile, or my own tag.
+  const halalBadge = (h) => (!h ? "" : h.status === "halal"
+    ? `<span class="halal${h.source === "mine" ? " mine" : ""}" title="${h.source === "mine" ? "Halal: your own tag" : `In the EGX 33 Shariah list${h.listDate ? ` (from ${h.listDate})` : ""}`}">Halal</span>`
+    : '<span class="halal not mine" title="Not halal: your own tag">Not halal</span>');
+
+  function renderHalal() {
+    const slot = $("halalSlot"), d = state.data;
+    if (!d.currency) { slot.innerHTML = ""; return; }
+    const mine = d.halal?.source === "mine" ? d.halal.status : "";
+    slot.innerHTML = `${halalBadge(d.halal)}
+      <select class="halal-select" title="Tag this stock halal (Shariah compliant) yourself, or follow the EGX 33 Shariah list saved in My profile">
+        <option value="">Shariah: use list</option>
+        <option value="halal" ${mine === "halal" ? "selected" : ""}>Mark halal</option>
+        <option value="not" ${mine === "not" ? "selected" : ""}>Mark not halal</option>
+      </select>`;
+    slot.querySelector("select").addEventListener("change", async (ev) => {
+      ev.target.disabled = true;
+      try {
+        const r = await fetch("/api/shariah/tag", { method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: d.symbol, status: ev.target.value || null }) });
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.detail || `Request failed (${r.status})`);
+        d.halal = b.halal;
+      } catch (err) {
+        setStatus(escapeHtml(err.message), true);
+      }
+      if (state.data === d) renderHalal();
+    });
+  }
+
   async function renderProfileButton(typed) {
     const slot = $("profileSlot");
     const d = state.data;
@@ -435,6 +465,7 @@
       render();
       setStatus("");
       updateTradingViewLink(body.symbol, interval);
+      renderHalal();
       renderProfileButton(symbol);
     } catch (err) {
       setStatus(escapeHtml(err.message), true);

@@ -16,7 +16,7 @@ from typing import Literal, Optional
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
-from . import backtest, backup
+from . import backtest, backup, shariah
 from .data import fetch_actions, fetch_ohlcv
 from .screener import _scan_one
 from .sizing import position_risk, size_position
@@ -96,11 +96,19 @@ class SectorView(BaseModel):
     updated: Optional[date] = None
 
 
+class Shariah(BaseModel):
+    """Which stocks I count as halal: the official EGX 33 Shariah list (pasted in) and my own tags."""
+    symbols: list[str] = Field([], max_length=300)  # list members, as COMI.CA
+    listDate: Optional[date] = None  # when that list took effect
+    tags: dict[str, Literal["halal", "not"]] = {}  # my own tags, keyed like COMI.CA; they win over the list
+
+
 class Profile(BaseModel):
     name: str = Field("", max_length=60)
     settings: Settings = Settings()
     entries: list[Entry] = []
     sectors: dict[str, SectorView] = {}  # keyed by sector slug
+    shariah: Shariah = Shariah()
     inflationPct: float = Field(12.0, ge=0, le=100)  # placeholder; the Sectors page judges real growth against it
 
 
@@ -173,6 +181,28 @@ def set_inflation(pct: float) -> Profile:
     with _lock:
         prof = load()
         prof.inflationPct = pct
+        save(prof)
+    return prof
+
+
+def set_shariah_list(symbols: list[str], list_date: date | None) -> Profile:
+    with _lock:
+        prof = load()
+        prof.shariah.symbols = symbols
+        prof.shariah.listDate = list_date if symbols else None
+        save(prof)
+    return prof
+
+
+def set_halal_tag(symbol: str, status: Literal["halal", "not"] | None) -> Profile:
+    """Tag a stock halal / not halal myself; None goes back to the list."""
+    with _lock:
+        prof = load()
+        k = shariah.key(symbol)
+        if status:
+            prof.shariah.tags[k] = status
+        else:
+            prof.shariah.tags.pop(k, None)
         save(prof)
     return prof
 
@@ -771,5 +801,7 @@ def live_profile(interval: str, period: str) -> dict:
     fx = fx_lookup(rates) if rates is not None else None
     entries = [compare(e, r, backtest.track_for(r["symbol"], interval) if "error" not in r else None, prof.settings, a, fx)
                for e, r, a in zip(prof.entries, rows, acts)]
+    for e, r in zip(entries, rows):
+        e["halal"] = shariah.status(prof.shariah, r.get("symbol") or e["symbol"])
     return {"name": prof.name, "settings": public_settings(prof.settings), "entries": entries,
             "summary": summarize(entries, prof.settings)}

@@ -5,6 +5,9 @@
   const pct = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
   const cls = (v) => (v == null ? "" : v > 0 ? "up" : v < 0 ? "down" : "");
   const compact = (v) => (v >= 1e9 ? `${(v / 1e9).toFixed(1)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : `${Math.round(v)}`);
+  const halalBadge = (h) => (!h ? "" : h.status === "halal"
+    ? `<span class="halal${h.source === "mine" ? " mine" : ""}" title="${h.source === "mine" ? "Halal: your own tag" : "In the EGX 33 Shariah list"}">Halal</span>`
+    : '<span class="halal not mine" title="Not halal: your own tag">Not halal</span>');
   const chart = (sym) => `/?${new URLSearchParams({ symbol: sym, interval: "1d", period: "1y" })}`;
 
   function setStatus(msg, isError = false) {
@@ -67,7 +70,7 @@
   function renderMovers(id, rows) {
     $(id).querySelector("tbody").innerHTML = rows.map((s) => `
       <tr data-symbol="${escapeHtml(s.symbol)}">
-        <td><div class="sym">${escapeHtml(s.symbol.replace(".CA", ""))}</div><div class="muted small">${escapeHtml(s.name)}</div></td>
+        <td><div class="sym">${escapeHtml(s.symbol.replace(".CA", ""))} ${halalBadge(s.halal)}</div><div class="muted small">${escapeHtml(s.name)}</div></td>
         <td class="num">${fmt(s.close)}</td>
         <td class="num ${cls(s.changePct)}">${pct(s.changePct)}</td>
         <td class="num muted">${compact(s.value)}</td>
