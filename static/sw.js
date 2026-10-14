@@ -1,6 +1,6 @@
 // Service worker: pages and their files load from the network when possible, so prices are always
 // fresh; the last copy is kept for when the connection drops. API answers are never cached.
-const CACHE = "pattern-charts-v2";
+const CACHE = "market-lens-v1";
 const SHELL = ["/profile", "/market", "/screener", "/track", "/sectors", "/", "/static/style.css", "/static/pwa.js",
   "/static/profile.js", "/static/market.js", "/static/screener.js", "/static/track.js", "/static/sectors.js", "/static/app.js",
   "/static/icons/icon-192.png"];

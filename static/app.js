@@ -444,7 +444,7 @@
       try { saved = localStorage.getItem(buyKey()) || ""; } catch (_) {}
       $("buyPrice").value = saved;
       if (push) history.pushState(null, "", `?${q}`);
-      document.title = `${body.symbol} · Pattern Charts`;
+      document.title = `${body.symbol} · Market Lens`;
       els.symbol.value = body.symbol;
 
       candles.setData(body.candles.map(({ volume: _v, ...c }) => c));

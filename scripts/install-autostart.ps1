@@ -1,4 +1,4 @@
-# Start Pattern Charts in the background every time you sign in to Windows,
+# Start Market Lens in the background every time you sign in to Windows,
 # so Telegram alerts and the phone app work without a terminal window.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1            # with phone access
@@ -12,7 +12,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $pyw = Join-Path $root ".venv\Scripts\pythonw.exe"   # pythonw = no console window
 if (-not (Test-Path $pyw)) { throw "Python environment not found at $pyw. Create it first (see README)." }
 $arguments = "-m app.serve --port $Port" + $(if ($NoPhone) { "" } else { " --lan" })
-$name = "PatternCharts"
+$name = "MarketLens"
 
 try {
     $action = New-ScheduledTaskAction -Execute $pyw -Argument $arguments -WorkingDirectory $root
@@ -20,7 +20,7 @@ try {
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
         -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Force `
-        -Description "Pattern Charts web app (alerts + phone access). Installed by scripts\install-autostart.ps1" | Out-Null
+        -Description "Market Lens web app (alerts + phone access). Installed by scripts\install-autostart.ps1" | Out-Null
     Write-Host "Installed: scheduled task '$name' starts the app at sign-in ($arguments)."
     if ($StartNow) { Start-ScheduledTask -TaskName $name; Write-Host "Started." }
 }

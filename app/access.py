@@ -67,9 +67,9 @@ def phone_link(port: int) -> dict:
 
 
 LOGIN_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pattern Charts</title><link rel="stylesheet" href="/static/style.css"></head>
+<title>Market Lens</title><link rel="stylesheet" href="/static/style.css"></head>
 <body><main class="screener" style="max-width:420px;margin:40px auto">
-<h1>🔒 Pattern Charts</h1>
+<h1>🔒 Market Lens</h1>
 <p class="muted">This app holds your portfolio, so other devices need the access key. On the computer running it,
 open <b>My profile → Phone app</b> and scan the QR code, or type the key here.</p>
 <form method="get" class="settings-bar" style="margin-top:12px"><label style="flex:1">Access key

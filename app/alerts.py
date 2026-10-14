@@ -90,7 +90,7 @@ def check_once(send: Sender | None = None, live: dict | None = None) -> dict:
             if new:
                 if not (settings.telegramToken and settings.telegramChatId):
                     raise RuntimeError("Telegram isn't set up: add the bot token and chat id.")
-                send(settings.telegramToken, settings.telegramChatId, "📊 Pattern Charts\n\n" + "\n\n".join(new))
+                send(settings.telegramToken, settings.telegramChatId, "📊 Market Lens\n\n" + "\n\n".join(new))
                 st["lastSent"] = stamp
             st.update(active=sorted(items), lastCheck=stamp, lastError=None)
             _save_state(st)
@@ -106,7 +106,7 @@ def send_test(send: Sender | None = None) -> None:
     s = profile.load().settings
     if not (s.telegramToken and s.telegramChatId):
         raise RuntimeError("Add the bot token and chat id first.")
-    send(s.telegramToken, s.telegramChatId, "📊 Pattern Charts: test message ✓ Alerts will arrive here.")
+    send(s.telegramToken, s.telegramChatId, "📊 Market Lens: test message ✓ Alerts will arrive here.")
 
 
 def _loop() -> None:

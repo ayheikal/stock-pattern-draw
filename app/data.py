@@ -32,6 +32,7 @@ ALIASES = {
     "FTSE": "^FTSE",
     "NIKKEI": "^N225",
     "VIX": "^VIX",
+    "USDEGP": "EGP=X",
 }
 
 # EGX indices Yahoo has no history for, keyed by the input with spaces/punctuation removed.

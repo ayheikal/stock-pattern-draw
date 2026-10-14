@@ -35,7 +35,7 @@ def port_busy(port: int) -> bool:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Run Pattern Charts")
+    ap = argparse.ArgumentParser(description="Run Market Lens")
     ap.add_argument("--lan", action="store_true", help="also listen on the home network (phone app)")
     ap.add_argument("--port", type=int, default=8000)
     args = ap.parse_args()

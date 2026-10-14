@@ -50,7 +50,7 @@ def test_keeps_last_30_days_and_mirrors(tmp_path):
     d.mkdir()
     for i in range(35):
         (d / f"profile-{datetime(2026, 1, 1) + timedelta(days=i):%Y-%m-%d}.json").write_text("{}", encoding="utf-8")
-    mirror = tmp_path / "OneDrive" / "PatternCharts"
+    mirror = tmp_path / "OneDrive" / "MarketLens"
     backup.snapshot(src, str(mirror))
     assert len(list(d.glob("profile-????-??-??.json"))) == 30
     assert (mirror / f"profile-{datetime.now():%Y-%m-%d}.json").exists()

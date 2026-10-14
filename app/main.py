@@ -27,7 +27,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Pattern Charts", version="1.0", lifespan=lifespan)
+app = FastAPI(title="Market Lens", version="1.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -220,7 +220,7 @@ def api_profile_export():
 
     from fastapi.responses import JSONResponse
     return JSONResponse(profile.public(profile.load()),
-                        headers={"Content-Disposition": f'attachment; filename="pattern-charts-profile-{_date.today()}.json"'})
+                        headers={"Content-Disposition": f'attachment; filename="market-lens-profile-{_date.today()}.json"'})
 
 
 @app.get("/api/size")
@@ -285,7 +285,9 @@ def api_backtest_run(universe: str = Query("egx"), interval: str = Query("1d")):
     return {"started": backtest.start(universe, interval, rules.feePct, rules.minAdtv)}
 
 
-INDICES = [("EGX30", "EGX 30"), ("EGX70", "EGX 70 EWI"), ("EGX100", "EGX 100 EWI"), ("EGX33", "EGX 33 Shariah")]
+# Cards at the top of the market page: the main indices, plus the dollar rate every EGX price is priced against.
+INDICES = [("EGX30", "EGX 30"), ("EGX70", "EGX 70 EWI"), ("EGX100", "EGX 100 EWI"), ("EGX33", "EGX 33 Shariah"),
+           ("USDEGP", "USD / EGP")]
 
 
 def _index_card(code: str, label: str) -> dict:
@@ -320,7 +322,7 @@ def api_market():
         market = fetch_market()
     except Exception as e:
         raise HTTPException(502, f"Couldn't load the EGX market snapshot: {str(e)[:120]}")
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=len(INDICES)) as pool:
         indices = list(pool.map(lambda x: _index_card(*x), INDICES))
     out = overview(market, indices)
     sh = profile.load().shariah

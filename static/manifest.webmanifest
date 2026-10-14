@@ -1,6 +1,6 @@
 {
-  "name": "Pattern Charts",
-  "short_name": "Patterns",
+  "name": "Market Lens",
+  "short_name": "Lens",
   "description": "EGX market, my positions with Buy / Hold / Sell, and chart patterns.",
   "start_url": "/profile",
   "scope": "/",

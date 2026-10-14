@@ -1,4 +1,10 @@
-# Pattern Charts
+# Market Lens
+
+A personal investing workstation: pattern charts with an outlook and trade plan, an EGX market overview,
+sector outlook, a halal-aware screener, your portfolio with costs, taxes and a USD view, Telegram alerts,
+and a track record that checks whether the signals work. Runs locally, with a phone app over home Wi-Fi.
+
+## Charts and patterns
 
 Type a stock, index or asset code and get a candlestick chart with classical
 technical-analysis patterns detected and drawn automatically.
@@ -54,7 +60,7 @@ EGX 33 Shariah starts in 2022.
 
 ## EGX market
 
-`/market` shows the EGX at a glance: EGX 30 / 70 / 100 / 33 Shariah with trend and returns, breadth
+`/market` shows the EGX at a glance: EGX 30 / 70 / 100 / 33 Shariah and the USD/EGP rate with trend and returns, breadth
 (stocks up vs down, share above their 50- and 200-day averages), a sector heatmap (click a sector to
 screen it) and the top gainers, losers and most traded stocks. The screener also gets live watchlists:
 the 80 most traded EGX stocks and one per sector. Source: TradingView's public screener (unofficial,
