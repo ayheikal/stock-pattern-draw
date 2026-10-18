@@ -1,0 +1,11 @@
+services:
+  market-lens:
+    build: .
+    image: market-lens
+    container_name: market-lens
+    restart: unless-stopped
+    ports:
+      # This computer only. The app has no access key in this mode, so don't publish it on 0.0.0.0.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/app/data

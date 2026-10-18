@@ -22,13 +22,37 @@ technical-analysis patterns detected and drawn automatically.
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install -r requirements-dev.txt
 .venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
 Open http://localhost:8000 (or deep-link: `http://localhost:8000/?symbol=COMI.CA&interval=1d&period=1y`).
 
 Tests: `.venv\Scripts\python -m pytest`
+
+`requirements.txt` holds what the app needs to run; `requirements-dev.txt` adds the test tools.
+
+### Docker
+
+Requires Docker Desktop (or Docker Engine with the Compose plugin).
+
+```powershell
+docker compose up -d --build     # build and start in the background
+docker compose logs -f           # follow the log
+docker compose down              # stop
+```
+
+Open http://localhost:8000. The container restarts with Docker, so Telegram alerts keep running without a terminal.
+Your `data\` folder is mounted into the container, so the profile, backups, backtest results and alert state are the
+same ones the non-Docker app uses. Run only one of the two at a time, since both use port 8000.
+
+Limits in Docker:
+
+- **This computer only.** The port is published on `127.0.0.1`. Phone mode isn't supported: inside a container
+  every request comes from Docker's network rather than `127.0.0.1`, so the app can't tell this computer from a phone.
+  Use the Windows auto-start below for phone access.
+- **Extra backup folder:** a path such as OneDrive set under *My profile → Backup* isn't visible inside the container.
+  Daily copies still go to `data\backups`.
 
 ## Symbols
 
