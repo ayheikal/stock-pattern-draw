@@ -239,6 +239,30 @@
       : `<li>No strong signals.</li>`;
   }
 
+  // ---------- buy checklist (/api/decision) ----------
+  const CHECK_ICON = { pass: "✓", warn: "!", fail: "✗", unknown: "?" };
+  async function renderChecklist() {
+    const box = $("checklist"), d = state.data;
+    box.hidden = true;
+    if (!d.currency || !["1d", "1wk"].includes(d.interval)) return; // indices and intraday bars: no checklist
+    let c;
+    try {
+      const r = await fetch(`/api/decision?${new URLSearchParams({ symbol: d.symbol, interval: d.interval })}`);
+      if (!r.ok) return;
+      c = await r.json();
+    } catch (_) { return; }
+    if (state.data !== d || !c.applicable) return; // another symbol loaded meanwhile
+    const v = $("checklistVerdict");
+    v.textContent = c.label;
+    v.className = `verdict ${c.verdict}`;
+    $("checklistReason").innerHTML = `${escapeHtml(c.reason)} <span class="muted small">${c.passed} of ${c.known} checks with data pass.</span>`
+      + (c.position && c.position !== "none" ? ' <span class="muted small">You hold it: see My profile for what to do with it.</span>' : "");
+    $("checklistItems").innerHTML = c.checks.map((k) => `
+      <li class="${k.status}"><span class="ic">${CHECK_ICON[k.status]}</span><span class="lbl">${escapeHtml(k.label)}</span>
+        <span class="det">${escapeHtml(k.detail)}</span></li>`).join("");
+    box.hidden = false;
+  }
+
   // ---------- position size (rules saved in My profile) ----------
   async function renderSize(o) {
     const box = $("planSize");
@@ -359,6 +383,7 @@
         const b = await r.json();
         if (!r.ok) throw new Error(b.detail || `Request failed (${r.status})`);
         d.halal = b.halal;
+        if (state.data === d) renderChecklist();
       } catch (err) {
         setStatus(escapeHtml(err.message), true);
       }
@@ -467,6 +492,7 @@
       updateTradingViewLink(body.symbol, interval);
       renderHalal();
       renderProfileButton(symbol);
+      renderChecklist();
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
     } finally {

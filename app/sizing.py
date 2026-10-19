@@ -5,13 +5,15 @@ import math
 
 
 def size_position(capital: float, risk_pct: float, max_pos_pct: float, entry: float, stop: float,
-                  fee_pct: float = 0.0, max_shares: int | None = None) -> dict:
+                  fee_pct: float = 0.0, max_shares: int | None = None,
+                  caps: dict[str, tuple[int, str]] | None = None) -> dict:
     """Shares to buy at `entry` with a protective `stop` below it (long only).
 
     The smallest of these limits wins:
       risk      - losing (entry - stop) per share, plus buying and selling costs, must not exceed risk_pct of capital
       size      - the position must not exceed max_pos_pct of capital
       liquidity - `max_shares`, when given (e.g. a share of the stock's normal daily trading)
+      caps      - more limits from the rest of the portfolio, {name: (max shares, why)}: cash, total risk, sector
     """
     f = fee_pct / 100
     budget = capital * risk_pct / 100
@@ -26,6 +28,8 @@ def size_position(capital: float, risk_pct: float, max_pos_pct: float, entry: fl
     }
     if max_shares is not None:
         limits["liquidity"] = int(max_shares)
+    caps = caps or {}
+    limits |= {k: max(0, int(n)) for k, (n, _) in caps.items()}
     limited_by = min(limits, key=limits.get)
     shares = limits[limited_by]
     if shares < 1:
@@ -33,8 +37,8 @@ def size_position(capital: float, risk_pct: float, max_pos_pct: float, entry: fl
             "risk": f"Even one share would risk {per_share:,.2f}, more than your {risk_pct:g}% budget ({budget:,.2f}).",
             "size": f"One share costs more than your {max_pos_pct:g}% limit per stock.",
             "liquidity": "The stock trades too little for even one share within your liquidity limit.",
-        }[limited_by]
-        return {"ok": False, "reason": reason}
+        }.get(limited_by) or f"No room for a new position: {caps[limited_by][1]}"
+        return {"ok": False, "reason": reason, "limitedBy": limited_by}
     risk = shares * per_share
     cost = shares * entry * (1 + f)
     return {
@@ -50,6 +54,7 @@ def size_position(capital: float, risk_pct: float, max_pos_pct: float, entry: fl
         "budget": round(budget, 2),
         "feePct": fee_pct,
         "limitedBy": limited_by,
+        "limitNote": caps[limited_by][1] if limited_by in caps else None,  # a portfolio rule made it smaller
     }
 
 

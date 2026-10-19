@@ -16,7 +16,7 @@ from typing import Literal, Optional
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
-from . import backtest, backup, shariah
+from . import backtest, backup, decision, shariah
 from .data import fetch_actions, fetch_ohlcv
 from .screener import _scan_one
 from .sizing import position_risk, size_position
@@ -58,6 +58,10 @@ class Settings(BaseModel):
     currency: str = Field("EGP", min_length=1, max_length=8)
     riskPct: float = Field(1.0, gt=0, le=10)  # max loss per trade, % of capital
     maxPositionPct: float = Field(25.0, gt=0, le=100)  # max size of one stock, % of capital
+    # Portfolio-wide limits: new buys are cut to fit what's left of them
+    maxTotalRiskPct: float = Field(6.0, gt=0, le=50)  # all stops hit at once may cost at most this % of capital
+    maxSectorPct: float = Field(35.0, gt=0, le=100)  # max in one EGX sector, % of capital
+    earningsBlackoutDays: int = Field(10, ge=0, le=60)  # don't buy this close to a results date
     # Costs & taxes. Placeholders: rates differ by broker and change with the law, so check a contract note.
     feePct: float = Field(0.2, ge=0, le=5)  # per side: brokerage + exchange + clearing + stamp duty
     dividendTaxPct: float = Field(10.0, ge=0, le=100)
@@ -219,8 +223,9 @@ def public(prof: Profile) -> dict:
 
 
 def sizing_for(settings: Settings, currency: str | None, entry: float, stop: float | None,
-               adtv: float | None = None) -> dict:
-    """How much to buy at `entry` with `stop`, under my rules; explains when it can't be sized."""
+               adtv: float | None = None, book: dict | None = None, sector: str | None = None) -> dict:
+    """How much to buy at `entry` with `stop`, under my rules; explains when it can't be sized.
+    With `book` (my portfolio, see book_of) the buy also has to fit my cash, total risk and sector limit."""
     if not settings.capital:
         return {"ok": False, "configured": False, "reason": "Set your capital in My profile to see position sizes."}
     if not currency:
@@ -230,8 +235,98 @@ def sizing_for(settings: Settings, currency: str | None, entry: float, stop: flo
     if stop is None:
         return {"ok": False, "configured": True, "reason": "Needs a stop-loss price to size the position."}
     max_shares = int(adtv * settings.maxAdtvPct / 100 / entry) if adtv else None
+    caps = portfolio_caps(settings, book, sector, entry, stop) if book and stop < entry else None
     return {"configured": True, "currency": settings.currency} | size_position(
-        settings.capital, settings.riskPct, settings.maxPositionPct, entry, stop, settings.feePct, max_shares)
+        settings.capital, settings.riskPct, settings.maxPositionPct, entry, stop, settings.feePct, max_shares, caps)
+
+
+def portfolio_caps(settings: Settings, book: dict, sector: str | None, entry: float, stop: float) -> dict[str, tuple[int, str]]:
+    """Most extra shares the rest of my portfolio allows: cash left, total risk left, room left in the sector."""
+    f, capital, cur = settings.feePct / 100, settings.capital, settings.currency
+    per_buy = entry * (1 + f)
+    per_risk = entry * (1 + f) - stop * (1 - f)
+    cash = book["cash"]
+    risk_room = capital * settings.maxTotalRiskPct / 100 - book["atRisk"]
+    caps = {
+        "cash": (math.floor(max(cash, 0) / per_buy), f"you have about {max(cash, 0):,.0f} {cur} in cash."),
+        "total risk": (math.floor(max(risk_room, 0) / per_risk),
+                       f"your positions already risk {book['atRisk'] / capital * 100:.1f}% of your capital if every stop is hit "
+                       f"(your limit for all of them is {settings.maxTotalRiskPct:g}%)."),
+    }
+    if sector:
+        in_sector = book["bySector"].get(sector, 0.0)
+        room = math.floor(max(capital * settings.maxSectorPct / 100 - in_sector, 0) / per_buy)
+        if in_sector:  # what I already hold there leaves less room
+            caps["sector"] = (room, f"{sector} is already {in_sector / capital * 100:.0f}% of your capital "
+                                    f"(your limit {settings.maxSectorPct:g}% per sector).")
+        else:  # nothing there yet: the sector limit works like a size limit
+            caps["sector size"] = (room, f"one sector may be at most {settings.maxSectorPct:g}% of your capital.")
+    return caps
+
+
+def _book(positions: list[dict], settings: Settings) -> dict:
+    """My portfolio as the money rules see it. `positions`: {symbol, side, qty, last, stop, basis, realized, dividends, sector}.
+
+    Capital is the money I put in, so cash = capital + realized gains + dividends - what open positions cost.
+    """
+    capital = settings.capital or 0.0
+    cash, invested, at_risk, by_sector = capital, 0.0, 0.0, {}
+    for p in positions:
+        cash += p.get("realized", 0.0) + p.get("dividends", 0.0)
+        if p["side"] == "long" and p["qty"]:
+            cash -= p["basis"]
+            value = p["qty"] * p["last"]
+            invested += value
+            if p.get("sector"):
+                by_sector[p["sector"]] = by_sector.get(p["sector"], 0.0) + value
+        if p["side"] != "none" and p["qty"] and p.get("stop") and capital:
+            at_risk += position_risk(capital, p["side"], p["qty"], p["last"], p["stop"], settings.feePct)["risk"]
+    return {"capital": capital, "currency": settings.currency, "cash": round(cash, 2), "invested": round(invested, 2),
+            "atRisk": round(at_risk, 2), "bySector": {k: round(v, 2) for k, v in by_sector.items()}}
+
+
+def book_of(entries: list[dict], settings: Settings, sector_of=lambda s: None) -> dict:
+    """The book from live profile rows (compare() output), in my capital's currency only."""
+    f = settings.feePct / 100
+    positions = []
+    for e in entries:
+        if "error" in e or (e.get("currency") or "").upper() != settings.currency:
+            continue
+        j = e.get("journal")
+        held = e["position"] != "none" and e.get("adjQty") and e.get("adjAvgCost")
+        positions.append({
+            "symbol": e["symbol"], "side": e["position"] if held else "none", "qty": e.get("adjQty") or 0.0,
+            "last": e["last"], "stop": e.get("stop"),
+            "basis": j["costBasis"] if j else (e["adjQty"] * e["adjAvgCost"] * (1 + f) if held else 0.0),
+            "realized": j["realized"] if j else 0.0,
+            "dividends": j["dividends"] if j else (e.get("income") or 0.0),
+            "sector": sector_of(e.get("resolved") or e["symbol"]),
+        })
+    return _book(positions, settings)
+
+
+def light_book(prof: Profile, market: list[dict]) -> dict:
+    """The book without loading every chart: prices from the EGX market snapshot, no corporate actions.
+    For the screener and chart page; My profile uses the full book_of."""
+    f = prof.settings.feePct / 100
+    snap = {s["symbol"]: s for s in market}
+    positions = []
+    for e in prof.entries:
+        k = shariah.key(e.symbol)
+        m = snap.get(k) or snap.get(k + ".CA")  # a bare EGX code (COMI) is saved as typed
+        if m is None or not m.get("close") or prof.settings.currency != "EGP":
+            continue
+        if e.trades:
+            j = ledger(e.trades, None, prof.settings)
+            qty, basis, realized = j["qty"], j["costBasis"], j["realized"]
+            side = "long" if qty > 0 else "none"
+        else:
+            side = e.position if e.qty and e.avgCost else "none"
+            qty = e.qty or 0.0
+            basis, realized = (qty * e.avgCost * (1 + f) if side == "long" else 0.0), 0.0
+        positions.append({"symbol": e.symbol, "side": side, "qty": qty, "last": m["close"], "stop": e.stop,
+                          "basis": basis, "realized": realized, "dividends": 0.0, "sector": m.get("sector")})
+    return _book(positions, prof.settings)
 
 
 def upsert(entry: Entry) -> Profile:
@@ -432,8 +527,12 @@ def usd_view(eff: Entry, journal: dict | None, last: float, currency: str | None
 
 
 def compare(entry: Entry, live: dict, track: dict | None = None, settings: Settings | None = None,
-            actions: list[dict] | None = None, fx=None) -> dict:
-    """Merge my entry with the live scan row: P/L, distance to my levels, and whether the chart agrees."""
+            actions: list[dict] | None = None, fx=None, ctx=None, interval: str = "1d") -> dict:
+    """Merge my entry with the live scan row: P/L, distance to my levels, and whether the chart agrees.
+
+    With `ctx` (a decision.Context: fundamentals, sectors and my whole portfolio) buys also have to pass the
+    buy checklist and fit my cash, total risk and sector limits, and results dates are taken into account.
+    """
     settings = settings or Settings()
     out = entry.model_dump(mode="json")
     if "error" in live:
@@ -485,6 +584,9 @@ def compare(entry: Entry, live: dict, track: dict | None = None, settings: Setti
         break_even = round(eff.avgCost * (1 + fee) / (1 - fee) if side == "long" else eff.avgCost * (1 - fee) / (1 + fee), 4)
 
     adtv = live.get("adtv")
+    fund = ctx.fund(live["symbol"]) if ctx else None
+    sector = (fund or {}).get("sector")
+    book = ctx.book if ctx else None
     res = out | {
         "position": eff.position,
         "since": eff.since.isoformat() if eff.since else None,
@@ -516,9 +618,17 @@ def compare(entry: Entry, live: dict, track: dict | None = None, settings: Setti
         "agreement": agreement,
         "track": _track_line(track, live["bias"]),
         "usd": usd_view(eff, journal, last, live["currency"], settings, fx),
-        **_money(eff, live, settings),
+        "sector": sector,
+        "lastBar": live.get("lastBar"),
+        **_money(eff, live, settings, book, sector),
     }
-    action = action_for(eff, res, settings)
+    if ctx:
+        from . import decision
+        res["decision"] = ctx.evaluate(live, interval, entry=eff, sizing=res["sizing"] if eff.position == "none" else None)
+        res["nextEarnings"] = res["decision"].get("nextEarnings")
+        res["earningsInDays"] = (date.fromisoformat(res["nextEarnings"]) - ctx.today).days if res["nextEarnings"] else None
+        res["stale"] = bool(live.get("currency")) and decision.check_fresh(live, ctx.today, interval, settings.holidays)["status"] == "warn"
+    action = action_for(eff, res, settings, book, sector)
     return res | {"action": action, "ticket": order_ticket(action, res, settings)}
 
 
@@ -552,14 +662,17 @@ def order_ticket(action: dict, e: dict, settings: Settings) -> dict | None:
             "limit": round(limit, 4), "total": round(total, 2), "stop": stop, "text": text}
 
 
-def _money(entry: Entry, live: dict, settings: Settings) -> dict:
+def _money(entry: Entry, live: dict, settings: Settings, book: dict | None = None, sector: str | None = None) -> dict:
     """Sizing for a new/added buy, and what an open position means for the account."""
     last = live["last"]
     mine = entry.stop is not None and entry.stop < last
     stop = entry.stop if mine else live.get("chartStop")
     out = {"sizing": None, "exposure": None}
     if entry.position != "short":
-        out["sizing"] = sizing_for(settings, live["currency"], last, stop, live.get("adtv")) | {"stopSource": "yours" if mine else "chart"}
+        # a held position is already in the book, so only a new buy is cut to fit the rest of the portfolio
+        new = entry.position == "none"
+        out["sizing"] = sizing_for(settings, live["currency"], last, stop, live.get("adtv"), book if new else None,
+                                   sector) | {"stopSource": "yours" if mine else "chart"}
     same_money = settings.capital and live["currency"] and live["currency"].upper() == settings.currency
     if entry.position != "none" and entry.qty and same_money:
         out["exposure"] = position_risk(settings.capital, entry.position, entry.qty, last, entry.stop, settings.feePct)
@@ -570,10 +683,14 @@ def _track_line(track: dict | None, bias: str) -> dict | None:
     """How the chart's current bias has played out on this symbol before."""
     if not track:
         return None
-    b = next((b for b in track["buckets"] if b["bias"] == bias), None)
-    if not b or not b["n"]:
+    pick = lambda t: next((b for b in t["buckets"] if b["bias"] == bias and b["n"]), None) if t else None
+    b = pick(track)
+    if not b:
         return None
-    return {k: b[k] for k in ("bias", "n", "asExpected", "avgRet", "excess", "small")} | {"baseline": track["baseline"]}
+    r = pick(track.get("recent"))
+    recent = r and {k: r[k] for k in ("n", "asExpected", "avgRet", "excess", "small")} | {
+        "baseline": track["recent"]["baseline"], "range": track["recent"]["range"]}
+    return {k: b[k] for k in ("bias", "n", "asExpected", "avgRet", "excess", "small")} | {"baseline": track["baseline"], "recent": recent}
 
 
 GROUP = {"buy": "Buy", "sell": "Sell", "hold": "Hold", "caution": "Hold", "wait": "Wait"}
@@ -587,19 +704,36 @@ def _act(action: str, tone: str, reason: str, **extra) -> dict:
 NEAR_STOP_PCT = 3.0
 
 
-def _room_to_add(entry: Entry, last: float, settings: Settings, adtv: float | None = None) -> int:
-    """Extra shares my rules still allow on top of what I hold (0 if none or unknown)."""
+def _room_to_add(entry: Entry, last: float, settings: Settings, adtv: float | None = None,
+                 book: dict | None = None, sector: str | None = None) -> int:
+    """Extra shares my rules still allow on top of what I hold (0 if none or unknown).
+    With `book`, also no more than my cash, total risk and sector limits leave room for."""
     if not (settings.capital and entry.qty and entry.stop and entry.stop < last):
         return 0
     max_shares = int(adtv * settings.maxAdtvPct / 100 / last) if adtv else None
     z = size_position(settings.capital, settings.riskPct, settings.maxPositionPct, last, entry.stop, settings.feePct, max_shares)
-    return max(0, z["shares"] - int(entry.qty)) if z["ok"] else 0
+    extra = max(0, z["shares"] - int(entry.qty)) if z["ok"] else 0
+    if extra and book:
+        extra = min([extra] + [n for n, _ in portfolio_caps(settings, book, sector, last, entry.stop).values()])
+    return max(0, extra)
 
 
-def action_for(entry: Entry, e: dict, settings: Settings) -> dict:
+def _buy_block(e: dict, settings: Settings) -> str | None:
+    """Why a buy should wait, from the buy checklist and results dates (None: nothing against it)."""
+    d = e.get("decision")
+    if d and d.get("applicable") and d["verdict"] in ("avoid", "wait"):
+        return f"The buy checklist says {d['label']}: {d['reason']}"
+    days = e.get("earningsInDays")
+    if days is not None and 0 <= days <= settings.earningsBlackoutDays:
+        return f"Results are due on {e['nextEarnings']} (in {days} days); a surprise can gap the price past your stop."
+    return None
+
+
+def action_for(entry: Entry, e: dict, settings: Settings, book: dict | None = None, sector: str | None = None) -> dict:
     """Buy / Hold / Sell from my own plan (view, stop, target) and my money rules.
 
     The chart's bias is deliberately not an input: the track record shows it has no reliable edge.
+    A buy or add also has to pass the buy checklist (when there is one) and keep clear of results dates.
     """
     last, stop, target = e["last"], entry.stop, entry.target
     f = lambda x: f"{x:,.2f}"
@@ -638,11 +772,14 @@ def action_for(entry: Entry, e: dict, settings: Settings) -> dict:
             return _act("Set stop", "caution", f"Nothing says sell, but you have no stop-loss. Set one now.{hint}")
         if e.get("toStopPct") is not None and abs(e["toStopPct"]) <= NEAR_STOP_PCT:
             return _act("Watch closely", "caution", f"Only {abs(e['toStopPct']):.1f}% above your stop ({f(stop)}). Be ready to exit if it closes below.")
-        extra = _room_to_add(entry, last, settings, e.get("adtv"))
+        extra = _room_to_add(entry, last, settings, e.get("adtv"), book, sector)
+        between = f"between your stop ({f(stop)})" + (f" and target ({f(target)})" if target else "")
         if entry.expectation == "bullish" and target and extra and (target - last) >= (last - stop):
+            block = _buy_block(e, settings)
+            if block:
+                return _act("Hold", "hold", f"The price is {between}. Your plan says stay in, but don't add yet. {block}")
             return _act("Add more", "buy", f"Your view is still bullish, your target ({f(target)}) offers more than your stop risks, "
                                            f"and your rules allow up to {extra:,} more shares.", shares=extra)
-        between = f"between your stop ({f(stop)})" + (f" and target ({f(target)})" if target else "")
         return _act("Hold", "hold", f"The price is {between}. Your plan says stay in.")
 
     # watching
@@ -657,23 +794,30 @@ def action_for(entry: Entry, e: dict, settings: Settings) -> dict:
         rr = (target - last) / (last - z["stop"])
         if rr < 1:
             return _act("Wait for dip", "wait", f"Your target gains less ({f(target - last)}/share) than the stop risks ({f(last - z['stop'])}/share). Wait for a better price.")
+    block = _buy_block(e, settings)
+    if block:
+        return _act("Wait", "wait", f"Your view is bullish, but wait. {block}")
+    d = e.get("decision")
+    gap = f" The buy checklist has too little data to judge it ({d['reason'].rstrip('.').lower()})." if d and d.get("verdict") == "unknown" else ""
     if z.get("ok"):
         whose = "your stop" if z.get("stopSource") == "yours" else "a stop"
+        cut = f" Capped because {z['limitNote']}" if z.get("limitNote") else ""
         return _act("Buy", "buy", f"Your view is bullish. Buy up to {z['shares']:,} shares with {whose} at {f(z['stop'])}; "
-                                  f"that risks {z['riskPct']:g}% of your capital.", shares=z["shares"])
+                                  f"that risks {z['riskPct']:g}% of your capital.{cut}{gap}", shares=z["shares"])
     if z.get("configured") is False:
         return _act("Buy", "buy", "Your view is bullish. Set your capital in My money & rules to see how many shares.")
     if z.get("reason", "").startswith("An index"):
         return _act("Buy via fund", "buy", "Your view is bullish. An index is bought through a fund that tracks it.")
-    if "Even one share" in z.get("reason", "") or "One share costs" in z.get("reason", ""):
+    if any(x in z.get("reason", "") for x in ("Even one share", "One share costs", "No room")):
         return _act("Wait", "wait", z["reason"])
     return _act("Buy", "buy", f"Your view is bullish. {z.get('reason', '')}".strip())
 
 
 
 
-def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
-    """Totals per currency, how often the chart agrees with me, and what needs a look."""
+def summarize(entries: list[dict], settings: Settings | None = None, book: dict | None = None) -> dict:
+    """Totals per currency, how often the chart agrees with me, and what needs a look.
+    `book` (book_of) gives real cash and sector weights; without it cash is capital minus what's invested."""
     held = [e for e in entries if e["position"] != "none"]
     books: dict[str, dict] = {}
     fee = (settings.feePct if settings else Settings().feePct) / 100
@@ -722,6 +866,14 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
         if e["position"] != "none" and e.get("agreement") == "disagrees":
             attention.append({"symbol": s, "kind": "disagree",
                               "text": f"You hold it expecting {e['expectation']}, but the chart reads {e['appBias'].lower()}."})
+        days = e.get("earningsInDays")
+        if e["position"] != "none" and days is not None and 0 <= days <= (settings or Settings()).earningsBlackoutDays:
+            attention.append({"symbol": s, "kind": "earnings",
+                              "text": f"Results due on {e['nextEarnings']} (in {days} days). The price can jump either way; "
+                                      "check your stop, or trim if a gap past it would hurt too much."})
+        if e.get("stale"):
+            attention.append({"symbol": s, "kind": "stale",
+                              "text": f"No new price since {e['lastBar']}: suspended, or the data feed is behind. Check before acting."})
 
     settings = settings or Settings()
     risk = None
@@ -733,13 +885,26 @@ def summarize(entries: list[dict], settings: Settings | None = None) -> dict:
             "currency": settings.currency,
             "riskPct": settings.riskPct,
             "maxPositionPct": settings.maxPositionPct,
+            "maxTotalRiskPct": settings.maxTotalRiskPct,
+            "maxSectorPct": settings.maxSectorPct,
             "invested": round(invested, 2),
             "investedPct": round(invested / settings.capital * 100, 1),
-            "cash": round(settings.capital - invested, 2),
+            "cash": book["cash"] if book else round(settings.capital - invested, 2),
+            "cashReal": bool(book),  # capital + realized + dividends - cost of what I hold
             "atRisk": round(sum(x["risk"] or 0 for _, x in exp), 2),
             "atRiskPct": round(sum(x["risk"] or 0 for _, x in exp) / settings.capital * 100, 2),
             "noStop": [e["symbol"] for e, x in exp if x["risk"] is None],
+            "sectors": sorted(({"sector": k, "value": v, "pct": round(v / settings.capital * 100, 1)}
+                               for k, v in (book or {}).get("bySector", {}).items()), key=lambda r: -r["value"]),
         }
+        if risk["atRiskPct"] > settings.maxTotalRiskPct:
+            attention.append({"symbol": "Portfolio", "kind": "total-risk",
+                              "text": f"If every stop is hit you lose {risk['atRiskPct']:g}% of your capital, above your "
+                                      f"{settings.maxTotalRiskPct:g}% limit. Tighten stops or trim before buying more."})
+        for r in risk["sectors"]:
+            if r["pct"] > settings.maxSectorPct:
+                attention.append({"symbol": r["sector"], "kind": "sector",
+                                  "text": f"is {r['pct']:g}% of your capital, above your {settings.maxSectorPct:g}% limit per sector."})
         for e, x in exp:
             s = e["symbol"]
             if x["weightPct"] > settings.maxPositionPct:
@@ -799,9 +964,14 @@ def live_profile(interval: str, period: str) -> dict:
     need_fx = any(r.get("currency") == "EGP" and (e.position == "long" or e.trades) for e, r in zip(prof.entries, rows))
     rates = usd_rates() if need_fx else None
     fx = fx_lookup(rates) if rates is not None else None
-    entries = [compare(e, r, backtest.track_for(r["symbol"], interval) if "error" not in r else None, prof.settings, a, fx)
-               for e, r, a in zip(prof.entries, rows, acts)]
+    tracks = [backtest.track_for(r["symbol"], interval) if "error" not in r else None for r in rows]
+    # Two passes: the first gives every position's cost, value and risk (the book), the second
+    # sizes buys against what that book leaves and runs the buy checklist.
+    ctx = decision.Context(prof, book={})
+    first = [compare(e, r, t, prof.settings, a, fx) for e, r, t, a in zip(prof.entries, rows, tracks, acts)]
+    ctx.book = book_of(first, prof.settings, lambda s: (ctx.fund(s) or {}).get("sector"))
+    entries = [compare(e, r, t, prof.settings, a, fx, ctx, interval) for e, r, t, a in zip(prof.entries, rows, tracks, acts)]
     for e, r in zip(entries, rows):
         e["halal"] = shariah.status(prof.shariah, r.get("symbol") or e["symbol"])
     return {"name": prof.name, "settings": public_settings(prof.settings), "entries": entries,
-            "summary": summarize(entries, prof.settings)}
+            "summary": summarize(entries, prof.settings, ctx.book)}

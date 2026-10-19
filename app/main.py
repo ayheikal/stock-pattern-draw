@@ -14,10 +14,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
-from . import access, alerts, backtest, profile, shariah
+from . import access, alerts, backtest, decision, profile, shariah
 from .outlook import build_outlook
 from .patterns import analyze
-from .screener import MAX_SYMBOLS, adtv, all_universes, get_universe, scan
+from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -157,12 +157,16 @@ def api_screen(
     symbols: str = Query("", max_length=2000, description="Comma-separated list; overrides universe"),
     interval: str = Query("1d"),
     period: str = Query("1y"),
-    min_score: float = Query(0.4, description="0.4 = mildly bullish, 1.2 = bullish"),
+    min_score: float = Query(-99, description="Optional outlook filter (0.4 = mildly bullish); off by default, the chart has no proven edge"),
     min_adtv: float = Query(0, ge=0, description="Skip stocks trading less than this value a day"),
     halal_only: bool = Query(False, description="Only stocks on my halal list or tagged halal"),
+    show: str = Query("not-avoid", description="ready = Ready to buy only, not-avoid = all but Avoid, all = every verdict"),
 ):
+    """Scan a watchlist and rank it by the buy checklist (Ready, then Wait, then the rest)."""
     if interval not in VALID_INTERVALS or period not in VALID_PERIODS:
         raise HTTPException(400, "invalid interval or period")
+    if show not in SHOW:
+        raise HTTPException(400, f"show must be one of {list(SHOW)}")
     if symbols.strip():
         syms = list(dict.fromkeys(s.strip().upper() for s in symbols.split(",") if s.strip()))
     elif get_universe(universe):
@@ -172,12 +176,35 @@ def api_screen(
     if len(syms) > MAX_SYMBOLS:
         raise HTTPException(400, f"at most {MAX_SYMBOLS} symbols per scan")
     out = scan(syms, interval, period, min_score, min_adtv)
-    sh = profile.load().shariah
+    prof = profile.load()
+    ctx = decision.Context(prof)
     for r in out["results"]:
-        r["halal"] = shariah.status(sh, r["symbol"]) if r.get("currency") else None
+        r["halal"] = shariah.status(prof.shariah, r["symbol"]) if r.get("currency") else None
+        r["decision"] = ctx.evaluate(r, interval)
+        r["nextEarnings"] = r["decision"].get("nextEarnings")
     if halal_only:
         out["results"] = [r for r in out["results"] if (r["halal"] or {}).get("status") == "halal"]
+    ranked = rank(out["results"], show)
+    out["hidden"] = {"avoid": sum(1 for r in out["results"] if r["decision"]["verdict"] == "avoid" and r not in ranked),
+                     "other": sum(1 for r in out["results"] if r["decision"]["verdict"] != "avoid" and r not in ranked)}
+    out["results"] = ranked
     return out
+
+
+@app.get("/api/decision")
+def api_decision(symbol: str = Query(..., min_length=1, max_length=32), interval: str = Query("1d")):
+    """The buy checklist for one symbol: each check, the verdict, and how much my rules allow."""
+    if interval not in ("1d", "1wk"):
+        raise HTTPException(400, "interval must be 1d or 1wk")
+    try:
+        row = _analyze_one(symbol, interval, "5y" if interval == "1wk" else "1y")
+    except (SymbolNotFound, InsufficientHistory):
+        raise HTTPException(404, f"No data for '{symbol}'.")
+    prof = profile.load()
+    ctx = decision.Context(prof)
+    entry = ctx.entry(row)
+    return {"symbol": row["symbol"], "position": entry.position if entry else None,
+            "sector": (ctx.fund(row["symbol"]) or {}).get("sector")} | ctx.evaluate(row, interval, entry=entry)
 
 
 @app.get("/api/profile")

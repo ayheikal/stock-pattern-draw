@@ -25,7 +25,7 @@
 
   <main class="screener">
     <div class="screener-head">
-      <h1>Bullish list <span id="found" class="badge" hidden>0</span></h1>
+      <h1>Screener <span id="found" class="badge" hidden>0</span></h1>
       <div id="scanInfo" class="muted"></div>
     </div>
 
@@ -34,10 +34,11 @@
         <select id="universe"></select></label>
       <label class="grow">Or your own symbols
         <input id="symbols" placeholder="COMI.CA, EGX30, AAPL" title="Comma-separated symbols. When filled, the watchlist is ignored." /></label>
-      <label>Outlook
-        <select id="minScore">
-          <option value="0.4" selected>Mildly bullish or better</option>
-          <option value="1.2">Bullish only</option>
+      <label title="Which buy-checklist verdicts to list">Show
+        <select id="show">
+          <option value="ready">Ready to buy only</option>
+          <option value="not-avoid" selected>All but Avoid</option>
+          <option value="all">Everything</option>
         </select></label>
       <label title="Skip stocks that trade less than this value a day (thin stocks are hard to exit)">Liquidity
         <select id="minAdtv">
@@ -61,23 +62,26 @@
         <thead>
           <tr>
             <th data-k="symbol">Symbol</th>
+            <th data-k="verdictRank" title="Buy checklist: Ready, Wait, Not enough data or Avoid, and how many checks with data pass">Checklist</th>
             <th data-k="last" class="num">Last</th>
             <th data-k="changePct" class="num">1 bar</th>
-            <th data-k="score" class="num">Outlook</th>
             <th data-k="upsidePct" class="num">Upside</th>
-            <th data-k="upTarget" class="num">Target</th>
-            <th data-k="stop" class="num">Stop</th>
-            <th data-k="rr" class="num">R:R</th>
+            <th data-k="upTarget" class="num" title="Your target from My profile when set, else the chart's">Target</th>
+            <th data-k="stop" class="num" title="Your stop from My profile when set, else the chart's">Stop</th>
+            <th data-k="rr" class="num" title="Reward vs risk buying at the last price, with this target and stop">R:R</th>
             <th data-k="aboveSma200">SMA 200</th>
-            <th data-k="action">Action</th>
             <th data-k="adtv" class="num" title="Average value traded per day, last 20 bars">Daily value</th>
+            <th data-k="nextEarnings" title="Next results date">Results</th>
+            <th data-k="score" class="num" title="Chart outlook: shown for reference, it has no proven edge">Chart</th>
             <th data-k="signal">Main signal</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
-    <p class="muted small">Ranked by outlook score, then upside to the target. Click a row to open its chart. Based on chart patterns only; not a forecast or advice.</p>
+    <p class="muted small">Ranked by the buy checklist: Ready first, then Wait, then Not enough data; within each, more passed checks
+      first, then the more liquid stock. Hover a verdict for its reason; click a row to open its chart and full checklist in a new tab.
+      The chart outlook is shown for reference only: the <a href="/track">Track record</a> shows it has no reliable edge. Not advice.</p>
   </main>
 
   <script src="/static/screener.js"></script>

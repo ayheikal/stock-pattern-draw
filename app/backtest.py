@@ -265,8 +265,12 @@ def start(universe: str, interval: str, fee_pct: float = 0.0, min_adtv: float = 
     return True
 
 
+RECENT = "1y"  # the look-back shown next to the all-history record
+
+
 def track_for(resolved: str, interval: str) -> dict | None:
-    """Cached per-symbol record from any universe that includes this symbol.
+    """Cached per-symbol record from the newest run that includes this symbol, plus its last-year record
+    as "recent" (an edge that held long ago but not lately is worth knowing about).
 
     An EGX stock matches under either code (EGX:COMI or COMI.CA): older runs resolved them via Yahoo.
     """
@@ -275,11 +279,14 @@ def track_for(resolved: str, interval: str) -> dict | None:
         keys.append(resolved[4:] + ".CA")
     elif resolved.endswith(".CA"):
         keys.append("EGX:" + resolved[:-3])
-    for p in sorted(_dir().glob(f"backtest_*_{interval}.json")):
-        per = json.loads(p.read_text(encoding="utf-8")).get("perSymbol", {})
-        for k in keys:
-            if k in per:
-                return per[k]
+    runs = [json.loads(p.read_text(encoding="utf-8")) for p in _dir().glob(f"backtest_*_{interval}.json")]
+    for run in sorted(runs, key=lambda r: r.get("generatedAt") or "", reverse=True):
+        per = run.get("perSymbol", {})
+        k = next((k for k in keys if k in per), None)
+        if k is None:
+            continue
+        recent = run.get("ranges", {}).get(RECENT, {}).get("perSymbol", {}).get(k)
+        return per[k] | {"recent": recent and {"range": RECENT, "since": run["ranges"][RECENT].get("since"), **recent}}
     return None
 
 

@@ -101,6 +101,9 @@ def test_backtest_api_run_and_profile_track(client, monkeypatch):
            "score": 0.0, "upTarget": 110.0, "downTarget": 90.0, "action": "Wait", "signal": ""}
     out = profile.compare(profile.Entry(symbol="AAA"), row, track)
     assert out["track"]["bias"] == live_bias and out["track"]["n"] > 0
+    # the last year's record comes along, so a fading edge shows next to the all-history one
+    assert track["recent"]["range"] == "1y" and "buckets" in track["recent"]
+    assert out["track"]["recent"] is None or out["track"]["recent"]["range"] == "1y"
 
 
 def test_backtest_api_rejects_bad_args(client):

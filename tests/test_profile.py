@@ -117,7 +117,8 @@ def test_settings_sizing_and_risk(client):
     # holding 1000 @ 110 = 110k = 55% of capital; stop at 95 -> 15k = 7.5% at risk
     assert (e["exposure"]["weightPct"], e["exposure"]["riskPct"]) == (55.0, 7.5)
     r = body["summary"]["risk"]
-    assert (r["invested"], r["cash"], r["atRiskPct"]) == (110000.0, 90000.0, 7.5)
+    # cash is what's left of the capital after paying 1000 x 100 for the holding, not after its current value
+    assert (r["invested"], r["cash"], r["atRiskPct"]) == (110000.0, 100000.0, 7.5)
     kinds = {a["kind"] for a in body["summary"]["attention"] if a["symbol"] == "TMGH"}
     assert {"big", "risk"} <= kinds
 
@@ -206,3 +207,101 @@ def test_order_tickets():
     assert ticket(50.0, expectation="neutral") is None  # Watch
     coarse = profile.Settings(capital=100_000, feePct=0, tickSize=0.05)
     assert ticket(50.02, settings=coarse, expectation="bullish", stop=45, target=70)["limit"] == 50.05
+
+
+# --- portfolio guardrails: cash, total risk and sector limits; the buy checklist and results dates ---
+
+GUARD = profile.Settings(capital=100_000, riskPct=1, maxPositionPct=25, feePct=0, maxTotalRiskPct=6, maxSectorPct=35)
+EMPTY_BOOK = {"cash": 100_000.0, "atRisk": 0.0, "bySector": {}}
+
+
+def test_buys_shrink_to_fit_cash_total_risk_and_sector():
+    size = lambda **book: profile.sizing_for(GUARD, "EGP", 50, 45, book=EMPTY_BOOK | book, sector="Finance")
+    assert (size()["shares"], size()["limitedBy"], size()["limitNote"]) == (200, "risk", None)  # 1% of 100k / 5
+    z = size(cash=5_000.0)
+    assert (z["shares"], z["limitedBy"]) == (100, "cash") and "5,000 EGP in cash" in z["limitNote"]
+    z = size(atRisk=5_800.0)  # 6% = 6000 allowed in all, 200 left -> 40 shares at 5 each
+    assert (z["shares"], z["limitedBy"]) == (40, "total risk")
+    z = size(bySector={"Finance": 34_000.0})  # 35% = 35k per sector, 1000 left -> 20 shares
+    assert (z["shares"], z["limitedBy"]) == (20, "sector") and "Finance is already 34%" in z["limitNote"]
+    z = size(cash=0.0)
+    assert z["ok"] is False and z["reason"].startswith("No room")
+
+
+def test_no_room_turns_buy_into_wait():
+    e = profile.Entry(symbol="X", expectation="bullish", stop=45, target=70)
+    row = live_row("X", 50.0, 0.0)
+    res = profile.compare(e, row, settings=GUARD) | {"sizing": profile.sizing_for(GUARD, "EGP", 50, 45, book=EMPTY_BOOK | {"cash": 0.0})}
+    a = profile.action_for(e, res, GUARD)
+    assert a["action"] == "Wait" and "No room" in a["reason"]
+
+
+def test_cash_counts_realized_gains_not_market_value():
+    e = profile.Entry(symbol="X", trades=[profile.Trade(date="2026-01-05", side="buy", qty=100, price=10),
+                                          profile.Trade(date="2026-02-05", side="sell", qty=100, price=12),
+                                          profile.Trade(date="2026-03-05", side="buy", qty=50, price=20)])
+    s = profile.Settings(capital=1_000, feePct=0)
+    out = profile.compare(e, live_row("X", 30.0, 0.0), settings=s)
+    book = profile.book_of([out], s, lambda sym: "Finance")
+    # 1000 + 200 realized - 50 x 20 still held = 200 cash; the holding is worth 50 x 30 = 1500 in Finance
+    assert (book["cash"], book["invested"], book["bySector"]) == (200.0, 1500.0, {"Finance": 1500.0})
+    risk = profile.summarize([out], s, book)["risk"]
+    assert risk["cash"] == 200.0 and risk["sectors"] == [{"sector": "Finance", "value": 1500.0, "pct": 150.0}]
+
+
+def test_light_book_prices_from_the_market_snapshot():
+    prof = profile.Profile(settings=GUARD, entries=[
+        profile.Entry(symbol="COMI", position="long", qty=100, avgCost=80, stop=70),
+        profile.Entry(symbol="AAPL", position="long", qty=10, avgCost=150)])  # not on the EGX: left out
+    book = profile.light_book(prof, [{"symbol": "COMI.CA", "close": 100.0, "sector": "Finance"}])
+    assert (book["cash"], book["invested"], book["atRisk"], book["bySector"]) == (92_000.0, 10_000.0, 3_000.0, {"Finance": 10_000.0})
+
+
+def test_summary_flags_total_risk_and_sector_limits():
+    rows = [profile.compare(profile.Entry(symbol="A", position="long", qty=1000, avgCost=40, stop=42), live_row("A", 50.0, 0.0), settings=GUARD)]
+    book = profile.book_of(rows, GUARD, lambda s: "Real Estate")
+    kinds = {a["kind"]: a for a in profile.summarize(rows, GUARD, book)["attention"]}
+    assert "total-risk" in kinds and "8%" in kinds["total-risk"]["text"]  # (50 - 42) x 1000 = 8% of capital
+    assert kinds["sector"]["symbol"] == "Real Estate" and "50%" in kinds["sector"]["text"]
+
+
+def context(fund: dict, today="2026-10-19"):
+    from datetime import date
+    from app import decision
+    prof = profile.Profile(settings=GUARD)
+    ctx = decision.Context(prof, today=date.fromisoformat(today), book=EMPTY_BOOK)
+    ctx.funds = {"X.CA": {"symbol": "X.CA", "sector": "Finance", "epsGrowth": 30.0, "revenueGrowth": 25.0, "roe": 22.0,
+                          "pe": 6.0, "nextEarnings": None} | fund}
+    ctx.sectors = {"Finance": {"sector": "Finance", "pe": 8.0, "verdict": "favour", "label": "Favour"}}
+    return ctx
+
+
+def checked_action(fund: dict | None = None, **row) -> dict:
+    from datetime import datetime, timezone
+    ctx = context(fund or {})
+    live = live_row("X.CA", 50.0, 0.0) | {"aboveSma200": True, "adtv": 5e6, "lastBar": "2026-10-18", "chartStop": 45.0} | row
+    e = profile.Entry(symbol="X.CA", expectation="bullish", stop=45, target=65)
+    return profile.compare(e, live, settings=GUARD, ctx=ctx)
+
+
+def test_buy_needs_a_ready_checklist():
+    out = checked_action()
+    assert out["decision"]["verdict"] == "ready" and out["action"]["action"] == "Buy" and out["sector"] == "Finance"
+    out = checked_action(aboveSma200=False)
+    assert out["action"]["action"] == "Wait" and "checklist says Avoid" in out["action"]["reason"]
+
+
+def test_results_due_soon_turn_buy_into_wait_and_flag_holdings():
+    from datetime import datetime, timezone
+    soon = datetime(2026, 10, 24, tzinfo=timezone.utc).timestamp()
+    out = checked_action({"nextEarnings": soon})
+    assert (out["nextEarnings"], out["earningsInDays"]) == ("2026-10-24", 5)
+    assert out["action"]["action"] == "Wait" and "2026-10-24" in out["action"]["reason"]
+    held = out | {"position": "long"}
+    assert "earnings" in {a["kind"] for a in profile.summarize([held], GUARD)["attention"]}
+
+
+def test_stale_price_is_flagged():
+    out = checked_action(lastBar="2026-10-01")
+    assert out["stale"] is True and out["action"]["action"] == "Wait"
+    assert "stale" in {a["kind"] for a in profile.summarize([out], GUARD)["attention"]}

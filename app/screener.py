@@ -107,10 +107,13 @@ def _analyze_one(symbol: str, interval: str, period: str) -> dict:
         "aboveSma200": None if sma200 is None else last >= sma200,
         "signal": o["drivers"][0]["text"] if o["drivers"] else "",
         "adtv": adtv(df, interval, meta.get("currency")),
+        "lastBar": df.index[-1].strftime("%Y-%m-%d"),
     }
 
 
-def scan(symbols: list[str], interval: str, period: str, min_score: float, min_adtv: float = 0) -> dict:
+def scan(symbols: list[str], interval: str, period: str, min_score: float = -99, min_adtv: float = 0) -> dict:
+    """Analyze every symbol; keep those with an outlook score >= min_score that trade at least min_adtv a day.
+    Sorted by outlook here; the screener re-ranks by the buy checklist (see rank)."""
     with ThreadPoolExecutor(max_workers=8) as pool:
         rows = list(pool.map(lambda s: _scan_one(s, interval, period), symbols))
     ok = [r for r in rows if "error" not in r]
@@ -121,3 +124,15 @@ def scan(symbols: list[str], interval: str, period: str, min_score: float, min_a
         "skipped": [r["symbol"] for r in rows if "error" in r],
         "results": bullish,
     }
+
+
+# Which verdicts the screener lists: Ready only, everything but Avoid (the default), or all of them.
+SHOW = {"ready": {"ready"}, "not-avoid": {"ready", "wait", "unknown", "index"}, "all": None}
+
+
+def rank(rows: list[dict], show: str = "not-avoid") -> list[dict]:
+    """Order rows by their buy checklist (row["decision"]): Ready first, then Wait, then the rest;
+    within a verdict, more passed checks first, then the more liquid stock. `show` drops the other verdicts."""
+    keep = SHOW[show]
+    rows = [r for r in rows if keep is None or r["decision"]["verdict"] in keep]
+    return sorted(rows, key=lambda r: (r["decision"]["rank"], -r["decision"].get("passed", 0), -(r.get("adtv") or 0)))

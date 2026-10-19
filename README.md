@@ -1,8 +1,8 @@
 # Market Lens
 
-A personal investing workstation: pattern charts with an outlook and trade plan, an EGX market overview,
-sector outlook, a halal-aware screener, your portfolio with costs, taxes and a USD view, Telegram alerts,
-and a track record that checks whether the signals work. Runs locally, with a phone app over home Wi-Fi.
+A personal investing workstation: a buy checklist per stock, pattern charts with an outlook and trade plan, an EGX
+market overview, sector outlook, a halal-aware screener, your portfolio with costs, taxes, portfolio-wide limits and
+a USD view, Telegram alerts, and a track record that checks whether the signals work. Runs locally, with a phone app over home Wi-Fi.
 
 ## Charts and patterns
 
@@ -17,6 +17,40 @@ technical-analysis patterns detected and drawn automatically.
 - **Candlesticks:** Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Morning/Evening Star, Three White Soldiers / Black Crows
 - **Outlook:** a plain-language expectation for the next period (next week on daily bars, next month on weekly, …): overall bias, the main signal, bullish/bearish scenarios with trigger levels and targets, and an ATR-based typical range
 - **Trade plan:** entry, target and stop-loss with reward/risk. The stop sits just beyond the main pattern's last swing (its invalidation point), else beyond the nearest support/resistance, else 2 × ATR. A neutral outlook gives two conditional breakout/breakdown plans instead. Target and stop are drawn on the chart.
+
+## Buy checklist
+
+One verdict per stock (**Ready to buy**, **Wait**, **Avoid** or **Not enough data**) with the reason, from checks
+that each pass, warn, fail or have no data ([app/decision.py](app/decision.py)). It's on the chart page, ranks the screener,
+and decides whether My profile says Buy / Add more.
+
+| Check | Pass | Warn | Fail |
+|---|---|---|---|
+| Above its 200-day average | above | | below: don't buy into a long-term downtrend |
+| Growth beats inflation | EPS and revenue growth above your inflation rate | one of them | EPS shrinking and revenue below inflation |
+| Profitable (ROE) | ROE above inflation | ROE positive but below | ROE ≤ 0 |
+| Price vs sector (P/E) | at or below the sector median | up to 2× | above 2×, or no earnings |
+| Sector outlook | Favour / Accumulate (Sectors page) | Watch, Neutral, Caution | Avoid |
+| Reward vs risk | 2 : 1 or better | 1–2 : 1 | below 1 : 1 with *your* levels (the chart's levels only warn) |
+| Liquid enough | daily value ≥ your minimum | thin | |
+| No results due soon | | results within your blackout days (→ Wait) | |
+| Data up to date | | no new price for 3+ sessions (→ Wait) | |
+| Fits my money rules | sized normally, or capped by a size rule | cut by cash, total risk or sector already held; no room (→ Wait) | |
+| Halal | on your Shariah list or tagged halal | tagged not halal | never: halal is a flag |
+
+Any fail gives **Avoid**. Three or more of the first six checks with no data give **Not enough data** (fundamentals come
+from TradingView's EGX screener, so non-EGX stocks always land here). A Wait check or two or more warnings give
+**Wait**. Otherwise it's **Ready to buy**. Reward vs risk uses your target and stop from My profile when set, else the chart's.
+
+The chart outlook is **not** a check. The Track record shows it has no reliable edge, so it's shown next to the
+checklist for reference only. The fundamental checks can't be backtested (there's no history of past
+fundamentals), so treat the checklist as discipline, not a forecast.
+
+The **screener** ranks a watchlist Ready first, then Wait, then Not enough data; within each, more passed checks first,
+then the more liquid stock. *Show* lists Ready only, everything but Avoid (the default) or everything, and says how
+many were hidden. Its Target / Stop / R:R columns are the levels the checklist judged, measured from the last price.
+
+`GET /api/decision?symbol=COMI.CA&interval=1d` returns the checks, verdict and the levels it judged.
 
 ## Run
 
@@ -129,7 +163,7 @@ Tag any stock yourself from its chart (*Mark halal* / *Mark not halal*); your ta
 outlook over up to 10 years of history: at every sample bar it rebuilds the outlook from the previous 250 bars
 only (no look-ahead), then records what price did over the outlook horizon and whether the trade plan hit its
 target or its stop first. Results are grouped by bias (Bullish … Bearish) and compared with a baseline of all
-periods, overall and per symbol. Your profile cards show the per-symbol record for the chart's current reading.
+periods, overall and per symbol. Your profile cards show the per-symbol record for the chart's current reading, over all history and over the last year (from the newest run).
 
 Run it from the page (Run button, ~30 s for the EGX list), or from the command line:
 
@@ -143,7 +177,7 @@ today's large caps (survivorship bias), there are no fees or slippage, and past 
 ## My profile (EGX-aware)
 
 `/profile` tracks what you hold and watch, with a Buy / Hold / Sell tag per asset from your own view,
-stop and target plus your money rules (not from the chart signals, which the track record shows have no edge).
+stop and target, your money rules and the buy checklist (not from the chart signals, which the track record shows have no edge).
 
 - **Bonus shares & dividends:** give each holding a *buy date*. Bonus issues and splits after it raise your
   quantity and lower your average cost (e.g. COMI's +10% bonus on 2025-12-17), and dividends are added
@@ -153,6 +187,13 @@ stop and target plus your money rules (not from the chart signals, which the tra
   The defaults are placeholders: copy the real rates from a contract note.
 - **Liquidity:** average daily traded value (20 bars). Position size never exceeds your set share of it,
   thin stocks are flagged, and the screener can skip them.
+- **Portfolio limits:** a new buy is cut to fit your **cash**, your **max loss on all positions together** (if every
+  stop is hit at once; default 6%) and your **max per sector** (default 35%), and the binding rule is named. *Capital*
+  is the money you put in: cash = capital + realized gains + dividends − what you paid for what you hold. The Risk tile
+  shows your weight per sector, and going over either limit is flagged.
+- **Buy checklist and results dates:** *Buy* and *Add more* also need the buy checklist to say Ready (or have too
+  little data to judge), and no results within your blackout days (default 10). Holdings with results coming up, or with
+  no new price for 3+ sessions, are flagged and sent as Telegram alerts.
 - **Trades:** record each buy and sell (date, qty, price, fees from the contract note or estimated).
   Quantity and average cost then come from the trades (average-cost method), with realized profit,
   fees and dividends per year, and bonus shares applied on their dates.

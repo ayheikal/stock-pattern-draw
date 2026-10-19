@@ -75,14 +75,17 @@
   function riskTile(r) {
     if (!r) return `<div class="tile"><h3>Risk</h3><div class="muted small">Enter your capital under <a href="#settingsForm">My money &amp; rules</a> to see how much you have at risk.</div></div>`;
     const cur = escapeHtml(r.currency);
-    const over = r.atRiskPct > r.riskPct * 3;
+    const over = r.atRiskPct > (r.maxTotalRiskPct ?? r.riskPct * 3);
+    const sectors = (r.sectors || []).map((x) => `<div class="kv"><span>${escapeHtml(x.sector)}</span>
+        <span class="${x.pct > r.maxSectorPct ? "down" : ""}">${x.pct}%</span></div>`).join("");
     return `<div class="tile">
         <h3>Risk</h3>
         <div class="big ${over ? "down" : ""}">${r.atRiskPct}%</div>
-        <div class="muted small">of your capital is lost if every stop is hit (${fmt(r.atRisk)} ${cur})</div>
+        <div class="muted small">of your capital is lost if every stop is hit (${fmt(r.atRisk)} ${cur})${r.maxTotalRiskPct ? `; your limit is ${r.maxTotalRiskPct}%` : ""}</div>
         <div class="kv"><span>Invested</span><span>${fmt(r.invested)} ${cur} (${r.investedPct}%)</span></div>
-        <div class="kv"><span>Cash</span><span class="${r.cash < 0 ? "down" : ""}">${fmt(r.cash)} ${cur}</span></div>
+        <div class="kv" title="${r.cashReal ? "Capital + realized gains + dividends − what you paid for what you hold" : "Capital − what you hold now"}"><span>Cash</span><span class="${r.cash < 0 ? "down" : ""}">${fmt(r.cash)} ${cur}</span></div>
         ${r.noStop.length ? `<div class="kv"><span>No stop</span><span class="down">${r.noStop.map(escapeHtml).join(", ")}</span></div>` : ""}
+        ${sectors ? `<div class="sector-bars"><div class="muted small">By sector (limit ${r.maxSectorPct}% each)</div>${sectors}</div>` : ""}
       </div>`;
   }
 
@@ -129,7 +132,7 @@
       <div class="tile todo">
         <h3>What to do</h3>
         ${todoRow("sell", "Sell")}${todoRow("buy", "Buy")}${todoRow("hold", "Hold")}${todoRow("wait", "Wait")}
-        <div class="muted small">From your own view, stop and target, and your money rules. Not from the chart signals.</div>
+        <div class="muted small">From your own view, stop and target, your money rules and the buy checklist. Not from the chart signals.</div>
       </div>
       <div class="tile">
         <h3>Portfolio</h3>
@@ -152,7 +155,8 @@
         ${breakdown(s.agreement, { agrees: "Agrees", mixed: "Mixed", disagrees: "Disagrees" })}
       </div>`;
 
-    const icons = { stop: "⛔", target: "🎯", "near-stop": "⚠️", disagree: "✗", error: "?", big: "⚖️", risk: "💸", "no-stop": "🛑", thin: "💧", date: "📅" };
+    const icons = { stop: "⛔", target: "🎯", "near-stop": "⚠️", disagree: "✗", error: "?", big: "⚖️", risk: "💸", "no-stop": "🛑", thin: "💧", date: "📅",
+      earnings: "🗓️", stale: "⏸️", "total-risk": "💸", sector: "🧺" };
     $("attention").innerHTML = s.attention.length
       ? `<h3>Needs attention <span class="badge">${s.attention.length}</span></h3>
          <ul>${s.attention.map((a) => `<li class="${a.kind}"><span class="ic">${icons[a.kind] || "•"}</span><a href="#" data-goto="${escapeHtml(a.symbol)}">${escapeHtml(a.symbol)}</a> ${escapeHtml(a.text)}</li>`).join("")}</ul>`
@@ -188,10 +192,28 @@
     const what = t.asExpected == null
       ? `price moved ${pct(t.avgRet)} on average, vs ${pct(t.baseline)} for any period`
       : `price went the predicted way <b>${t.asExpected.toFixed(0)}%</b> of the time, avg ${pct(t.avgRet)} vs ${pct(t.baseline)} for any period`;
-    return `<div class="track-line" title="From the Track record page">📊 After past <b>${escapeHtml(t.bias)}</b> readings here (${t.n}${t.small ? ", few" : ""}): ${what}. <a href="/track">Details</a></div>`;
+    const r = t.recent;
+    const recent = !r ? "" : r.asExpected == null
+      ? ` Last ${escapeHtml(r.range)}: ${pct(r.avgRet)} vs ${pct(r.baseline)} (${r.n}).`
+      : ` Last ${escapeHtml(r.range)}: <b>${r.asExpected.toFixed(0)}%</b> the predicted way, ${pct(r.avgRet)} vs ${pct(r.baseline)} (${r.n}${r.small ? ", few" : ""}).`;
+    return `<div class="track-line" title="From the Track record page">📊 After past <b>${escapeHtml(t.bias)}</b> readings here (${t.n}${t.small ? ", few" : ""}): ${what}.${recent} <a href="/track">Details</a></div>`;
   }
 
-  const SETTINGS = ["capital", "currency", "riskPct", "maxPositionPct", "maxAdtvPct", "feePct", "dividendTaxPct",
+  // The buy checklist for this stock (verdict, reason, every check).
+  const CHECK_ICON = { pass: "✓", warn: "!", fail: "✗", unknown: "?" };
+  function checklistBlock(e) {
+    const d = e.decision;
+    if (!d || !d.applicable) return "";
+    const list = d.checks.map((k) => `<li class="${k.status}"><span class="ic">${CHECK_ICON[k.status]}</span><span class="lbl">${escapeHtml(k.label)}</span>
+      <span class="det">${escapeHtml(k.detail)}</span></li>`).join("");
+    return `<div class="card-block checklist-block"><h3>Buy checklist</h3>
+      <div><span class="verdict ${d.verdict}">${escapeHtml(d.label)}</span> <span class="muted small">${d.passed} of ${d.known} checks with data pass</span></div>
+      <div class="small" style="margin-top:6px">${escapeHtml(d.reason)}</div>
+      <details><summary>All checks</summary><ul class="checklist">${list}</ul></details></div>`;
+  }
+
+  const SETTINGS = ["capital", "currency", "riskPct", "maxPositionPct", "maxAdtvPct", "maxTotalRiskPct", "maxSectorPct",
+    "earningsBlackoutDays", "feePct", "dividendTaxPct",
     "gainsTaxPct", "minAdtv", "tickSize", "telegramChatId", "alertEveryMin", "backupDir"];
   function fillSettings(st) {
     if (!st || $("settingsForm").contains(document.activeElement)) return;
@@ -330,6 +352,7 @@
       If it's hit you lose about <b class="down">${fmt(z.risk)} ${cur}</b> (${z.riskPct}% of your capital).
       ${z.limitedBy === "size" ? `<div class="muted small">Capped by your limit per stock; the stop is close, so the risk is below your maximum.</div>` : ""}
       ${z.limitedBy === "liquidity" ? `<div class="muted small">💧 Capped by liquidity: the stock trades about ${fmt(e.adtv)} a day, and you allow at most your set share of that.</div>` : ""}
+      ${z.limitNote ? `<div class="muted small">⚖️ Capped because ${escapeHtml(z.limitNote)}</div>` : ""}
       ${z.feePct ? `<div class="muted small">Includes ${z.feePct}% costs on the buy and on the sell.</div>` : ""}</div>`;
   }
 
@@ -391,7 +414,7 @@
     const live = e.error
       ? `<div class="status error inline">Could not load data for this symbol (${escapeHtml(e.error)}).</div>`
       : `<div class="card-block chart-says">
-          <h3>Chart says</h3>
+          <h3 title="The Track record shows the chart outlook has no reliable edge, so it doesn't decide Buy / Hold / Sell">Chart says (no proven edge)</h3>
           <div class="kvs">
             <div class="kv"><span>Outlook</span><span><span class="bias ${e.appView}">${escapeHtml(e.appBias)}</span> <span class="muted small">${e.appScore.toFixed(2)}</span></span></div>
             ${lvl(e.expectation === "bearish" ? "Down target" : "Up target", e.appTarget, e.appTarget && ((e.appTarget - e.last) / e.last) * 100, "")}
@@ -407,6 +430,8 @@
       e.plPct != null ? `<span class="${cls(e.plPct)}">${pct(e.plPct)}</span>` : "",
       e.stop != null ? `stop <b class="stp">${fmt(e.stop)}</b>${e.toStopPct != null ? ` <span class="muted">${pct(e.toStopPct)}</span>` : ""}` : "",
       e.target != null ? `target <b class="tgt">${fmt(e.target)}</b>${e.toTargetPct != null ? ` <span class="muted">${pct(e.toTargetPct)}</span>` : ""}` : "",
+      e.nextEarnings ? `<span title="Next results date">results ${escapeHtml(e.nextEarnings)}</span>` : "",
+      e.position === "none" && e.decision?.applicable ? `checklist <span class="verdict ${e.decision.verdict}">${escapeHtml(e.decision.label)}</span>` : "",
     ].filter(Boolean).join(" · ");
 
     return `
@@ -447,6 +472,7 @@
             ${lvl("Stop", e.stop, e.toStopPct, "stp")}
             ${e.horizon ? `<div class="kv"><span>Horizon</span><span>${escapeHtml(e.horizon)}</span></div>` : ""}
           </div>
+          ${e.error ? "" : checklistBlock(e)}
           ${live}
           ${e.error ? "" : moneyBlock(e)}
           ${e.error ? "" : tradesBlock(e)}

@@ -22,7 +22,7 @@
     $("universe").innerHTML = Object.entries(u).map(([k, v]) => `<option value="${k}">${escapeHtml(v.label)} (${v.count})</option>`).join("");
     try {
       const saved = JSON.parse(localStorage.getItem("screener") || "{}");
-      for (const k of ["universe", "symbols", "minScore", "minAdtv", "interval"]) if (saved[k] != null) $(k).value = saved[k];
+      for (const k of ["universe", "symbols", "show", "minAdtv", "interval"]) if (saved[k] != null) $(k).value = saved[k];
       $("halalOnly").checked = !!saved.halalOnly;
     } catch (_) {}
     syncWatchlist();
@@ -37,8 +37,8 @@
 
   async function scan() {
     const btn = document.querySelector("#scan button");
-    const params = { universe: $("universe").value, symbols: $("symbols").value.trim(), min_score: $("minScore").value, min_adtv: $("minAdtv").value, interval: $("interval").value, period: $("interval").value === "1wk" ? "5y" : "1y", halal_only: $("halalOnly").checked };
-    try { localStorage.setItem("screener", JSON.stringify({ universe: params.universe, symbols: params.symbols, minScore: params.min_score, minAdtv: params.min_adtv, interval: params.interval, halalOnly: params.halal_only })); } catch (_) {}
+    const params = { universe: $("universe").value, symbols: $("symbols").value.trim(), show: $("show").value, min_adtv: $("minAdtv").value, interval: $("interval").value, period: $("interval").value === "1wk" ? "5y" : "1y", halal_only: $("halalOnly").checked };
+    try { localStorage.setItem("screener", JSON.stringify({ universe: params.universe, symbols: params.symbols, show: params.show, minAdtv: params.min_adtv, interval: params.interval, halalOnly: params.halal_only })); } catch (_) {}
     btn.disabled = true;
     setStatus("Scanning… this can take a few seconds per dozen symbols.");
     $("results").hidden = true;
@@ -47,7 +47,12 @@
       const res = await fetch(`/api/screen?${new URLSearchParams(params)}`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.detail || `Request failed (${res.status})`);
-      state.rows = body.results;
+      // Target / stop / R:R are the levels the checklist judged (yours from My profile, else the chart's), from today's price.
+      state.rows = body.results.map((r) => {
+        const p = r.decision.plan;
+        const levels = p ? { upTarget: p.target, upsidePct: p.upsidePct, stop: p.stop, rr: p.rr } : { stop: null, rr: null };
+        return { ...r, ...levels, verdictRank: r.decision.rank * 100 - (r.decision.passed || 0) };
+      });
       state.interval = params.interval;
       state.sortKey = null;
       $("found").textContent = body.results.length;
@@ -55,8 +60,12 @@
       $("scanInfo").textContent = `${body.scanned} scanned in ${((performance.now() - t0) / 1000).toFixed(1)}s`
         + (body.skipped.length ? ` · skipped (no data): ${body.skipped.join(", ")}` : "");
       renderTable();
-      setStatus(body.results.length ? "" : "No symbol in this list passes the filters right now. Try a looser <b>Outlook</b> or <b>Liquidity</b> setting, or another watchlist."
-        + (params.halal_only ? " <b>Halal only</b> needs the EGX 33 Shariah list in <a href=\"/profile\">My profile</a>, or stocks you tagged halal." : ""));
+      const h = body.hidden || {};
+      const hidden = [h.avoid ? `${h.avoid} marked Avoid` : "", h.other ? `${h.other} not Ready` : ""].filter(Boolean).join(" and ");
+      setStatus(body.results.length
+        ? (hidden ? `${hidden} hidden by <b>Show</b>.` : "")
+        : `Nothing to show${hidden ? `: ${hidden}` : ""}. Try <b>Show: Everything</b> to see why, a looser <b>Liquidity</b> setting, or another watchlist.`
+          + (params.halal_only ? " <b>Halal only</b> needs the EGX 33 Shariah list in <a href=\"/profile\">My profile</a>, or stocks you tagged halal." : ""));
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
     } finally {
@@ -82,16 +91,18 @@
     $("results").querySelector("tbody").innerHTML = rows.map((r) => `
       <tr data-symbol="${escapeHtml(r.symbol)}">
         <td><div class="sym">${escapeHtml(r.symbol)} ${halalBadge(r.halal)}</div><div class="muted small">${escapeHtml(r.name)}</div></td>
+        <td class="checks-cell" title="${escapeHtml(r.decision.reason)}"><span class="verdict ${r.decision.verdict}">${escapeHtml(r.decision.label)}</span>
+          ${r.decision.applicable ? `<div class="muted">${r.decision.passed}/${r.decision.known} pass</div>` : ""}</td>
         <td class="num">${fmt(r.last)}</td>
         <td class="num ${r.changePct >= 0 ? "up" : "down"}">${pct(r.changePct)}</td>
-        <td class="num"><span class="bias ${/bullish/i.test(r.bias) ? "bullish" : ""}">${escapeHtml(r.bias)}</span> <span class="muted small">${r.score.toFixed(2)}</span></td>
-        <td class="num up">${pct(r.upsidePct)}</td>
+        <td class="num ${r.upsidePct >= 0 ? "up" : "down"}">${pct(r.upsidePct)}</td>
         <td class="num">${fmt(r.upTarget)}</td>
         <td class="num">${fmt(r.stop)}</td>
         <td class="num">${r.rr != null ? r.rr.toFixed(2) : "—"}</td>
         <td>${r.aboveSma200 == null ? "—" : r.aboveSma200 ? '<span class="up">Above</span>' : '<span class="down">Below</span>'}</td>
-        <td><span class="action ${/buy/i.test(r.action) ? "good" : "caution"}">${escapeHtml(r.action)}</span></td>
         <td class="num">${r.adtv == null ? "—" : compact(r.adtv)}</td>
+        <td class="nowrap">${r.nextEarnings ? escapeHtml(r.nextEarnings) : '<span class="muted">—</span>'}</td>
+        <td class="num"><span class="bias ${/bullish/i.test(r.bias) ? "bullish" : /bearish/i.test(r.bias) ? "bearish" : ""}">${escapeHtml(r.bias)}</span> <span class="muted small">${r.score.toFixed(2)}</span></td>
         <td class="signal">${escapeHtml(r.signal)}</td>
       </tr>`).join("");
     $("results").hidden = !rows.length;
@@ -103,13 +114,14 @@
     const th = e.target.closest("th[data-k]");
     if (!th) return;
     const k = th.dataset.k;
-    state.sortDir = state.sortKey === k ? -state.sortDir : (["symbol", "action", "signal"].includes(k) ? 1 : -1);
+    state.sortDir = state.sortKey === k ? -state.sortDir : (["symbol", "verdictRank", "nextEarnings", "signal"].includes(k) ? 1 : -1);
     state.sortKey = k;
     renderTable();
   });
   document.querySelector("#results tbody").addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-symbol]");
-    if (tr) location.href = `/?${new URLSearchParams({ symbol: tr.dataset.symbol, interval: state.interval, period: state.interval === "1wk" ? "5y" : "1y" })}`;
+    // A new tab keeps the scan results here to come back to.
+    if (tr) window.open(`/?${new URLSearchParams({ symbol: tr.dataset.symbol, interval: state.interval, period: state.interval === "1wk" ? "5y" : "1y" })}`, "_blank", "noopener");
   });
 
   const root = document.documentElement;
