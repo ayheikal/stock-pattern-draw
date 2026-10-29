@@ -37,7 +37,7 @@
             <span>Month <b class="${cls(i.month)}">${pct(i.month)}</b></span>
             <span>This year <b class="${cls(i.ytd)}">${pct(i.ytd)}</b></span>
           </div>
-          <div class="muted small">${i.above200 == null ? "" : i.above200 ? "Above" : "Below"} its 200-day average · ${escapeHtml(i.date)}</div>
+          <div class="muted small">${i.above200 == null ? "" : i.above200 ? "Above" : "Below"} its 200-day average · <span class="nowrap">${escapeHtml(i.date)}</span></div>
           ${i.symbol === "USDEGP" ? '<div class="muted small">EGP per dollar: up means a weaker pound</div>' : ""}
         </a>`).join("");
   }

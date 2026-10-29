@@ -1,6 +1,6 @@
 // Service worker: pages and their files load from the network when possible, so prices are always
 // fresh; the last copy is kept for when the connection drops. API answers are never cached.
-const CACHE = "market-lens-v1";
+const CACHE = "market-lens-v2";
 const SHELL = ["/profile", "/market", "/screener", "/track", "/sectors", "/", "/static/style.css", "/static/pwa.js",
   "/static/profile.js", "/static/market.js", "/static/screener.js", "/static/track.js", "/static/sectors.js", "/static/app.js",
   "/static/icons/icon-192.png"];
@@ -27,6 +27,7 @@ self.addEventListener("fetch", (e) => {
         }
         return res;
       })
-      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("/profile")))
+      // Offline: the same page with any query (/?symbol=… is still the chart page), else My profile.
+      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || caches.match("/profile")))
   );
 });

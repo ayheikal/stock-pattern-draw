@@ -211,10 +211,14 @@
   function renderOutlook(o) {
     const box = $("outlook");
     box.hidden = !o;
+    $("dsChart").parentElement.hidden = !o;
+    $("decisionSummary").hidden = !o;
     if (!o) return;
     const b = $("outlookBias");
     b.textContent = o.bias;
     b.className = "bias " + (/bullish/i.test(o.bias) ? "bullish" : /bearish/i.test(o.bias) ? "bearish" : "");
+    $("dsChart").textContent = o.bias;
+    $("dsChart").className = b.className;
     $("outlookHorizon").textContent = `Expectation for the ${o.horizon}`;
     $("outlookSummary").textContent = o.summary;
     $("outlookBull").textContent = o.bullCase;
@@ -239,20 +243,100 @@
       : `<li>No strong signals.</li>`;
   }
 
+  // ---------- layers toggle (phones fold the filter row away) ----------
+  const filtersBox = $("filters");
+  function layersSummary() {
+    const on = filtersBox.querySelectorAll("input[data-cat]:checked").length;
+    const all = filtersBox.querySelectorAll("input[data-cat]").length;
+    $("layersCount").textContent = `${on} of ${all} on · ${els.minConf.value}%+`;
+  }
+  $("layersToggle").addEventListener("click", () => {
+    const open = filtersBox.classList.toggle("open");
+    $("layersToggle").setAttribute("aria-expanded", String(open));
+  });
+  filtersBox.addEventListener("input", layersSummary);
+  layersSummary();
+
+  // ---------- sidebar: summary strip and tabs ----------
+  const TABS = ["decision", "outlook", "patterns", "levels"];
+  let preferredTab = "decision";
+  try { const t = localStorage.getItem("sideTab"); if (TABS.includes(t)) preferredTab = t; } catch (_) {}
+  let currentTab = null;
+  function showTab(name, remember = true) {
+    currentTab = name;
+    for (const t of TABS) {
+      $(`tab-${t}`).setAttribute("aria-selected", String(t === name));
+      $(`tab-${t}`).tabIndex = t === name ? 0 : -1;
+      $(`panel-${t}`).hidden = t !== name;
+    }
+    if (remember) {
+      preferredTab = name;
+      try { localStorage.setItem("sideTab", name); } catch (_) {}
+    }
+  }
+  showTab(preferredTab, false);
+  document.querySelector(".side-tabs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-tab]");
+    if (b) showTab(b.dataset.tab);
+  });
+  document.querySelector(".side-tabs").addEventListener("keydown", (e) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+    if (!step) return;
+    const next = TABS[(TABS.indexOf(currentTab) + step + TABS.length) % TABS.length];
+    showTab(next);
+    $(`tab-${next}`).focus();
+  });
+  $("decisionSummary").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-go]");
+    if (!b) return;
+    showTab(b.dataset.go);
+    // Scroll the sidebar itself on desktop (it scrolls on its own); on phones it doesn't, so scroll the page.
+    const side = document.querySelector(".sidebar"), target = $(b.dataset.target);
+    const behavior = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    if (side.scrollHeight > side.clientHeight + 1 && getComputedStyle(side).overflowY !== "visible") {
+      const tabs = document.querySelector(".side-tabs").offsetHeight;
+      side.scrollTo({ top: side.scrollTop + target.getBoundingClientRect().top - side.getBoundingClientRect().top - tabs - 8, behavior });
+    } else {
+      target.scrollIntoView({ block: "start", behavior });
+    }
+  });
+
+  // The summary strip's checklist and rating pills; with no checklist (indices, intraday) the Decision tab steps aside.
+  function setDecision(c) {
+    const has = !!(c && c.applicable);
+    $("decisionEmpty").hidden = has;
+    $("dsVerdict").parentElement.hidden = !has;
+    $("dsRating").parentElement.hidden = !(has && c.rating);
+    if (has) {
+      $("dsVerdict").textContent = c.label;
+      $("dsVerdict").className = `verdict ${c.verdict}`;
+      if (c.rating) {
+        $("dsRating").textContent = c.rating.signal.label;
+        $("dsRating").className = `rsig ${c.rating.signal.key}`;
+      }
+      if (currentTab !== preferredTab) showTab(preferredTab, false);
+    } else if (currentTab === "decision") {
+      showTab("outlook", false);
+    }
+  }
+
   // ---------- buy checklist (/api/decision) ----------
   const CHECK_ICON = { pass: "✓", warn: "!", fail: "✗", unknown: "?" };
   async function renderChecklist() {
     const box = $("checklist"), d = state.data;
     box.hidden = true;
     $("rating").hidden = true;
-    if (!d.currency || !["1d", "1wk"].includes(d.interval)) return; // indices and intraday bars: no checklist
+    $("decisionEmpty").hidden = true;
+    if (!d.currency || !["1d", "1wk"].includes(d.interval)) return setDecision(null); // indices and intraday bars: no checklist
     let c;
     try {
       const r = await fetch(`/api/decision?${new URLSearchParams({ symbol: d.symbol, interval: d.interval })}`);
-      if (!r.ok) return;
+      if (!r.ok) return state.data === d && setDecision(null);
       c = await r.json();
-    } catch (_) { return; }
-    if (state.data !== d || !c.applicable) return; // another symbol loaded meanwhile
+    } catch (_) { return state.data === d && setDecision(null); }
+    if (state.data !== d) return; // another symbol loaded meanwhile
+    if (!c.applicable) return setDecision(null);
+    setDecision(c);
     const v = $("checklistVerdict");
     v.textContent = c.label;
     v.className = `verdict ${c.verdict}`;

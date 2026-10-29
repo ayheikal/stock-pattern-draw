@@ -95,7 +95,8 @@
     const now = years.filter((r) => r.year === y);
     const line = (r) => {
       const net = r.realized + r.dividends;
-      return `<div class="kv"><span>Realized</span><span class="${cls(r.realized)}">${fmt(r.realized)} ${escapeHtml(r.currency)}</span></div>
+      const head = now.length > 1 ? `<div class="kv-head">${escapeHtml(r.currency || "Indices (points)")}</div>` : "";
+      return `${head}<div class="kv"><span>Realized</span><span class="${cls(r.realized)}">${fmt(r.realized)} ${escapeHtml(r.currency)}</span></div>
         <div class="kv"><span>Dividends</span><span class="up">${fmt(r.dividends)}</span></div>
         <div class="kv"><span>Fees paid</span><span>${fmt(r.fees)}</span></div>
         <div class="kv"><span><b>Net</b></span><b class="${cls(net)}">${fmt(net)}</b></div>`;
@@ -123,11 +124,25 @@
 
     const todo = s.todo || {};
     const tagOf = Object.fromEntries(state.entries.filter((e) => e.action).map((e) => [e.symbol, e.action.action]));
-    const todoRow = (k, label) => (todo[k] && todo[k].length
-      ? `<div class="todo-row"><span class="act ${k}">${label}</span><span>${todo[k].map((x) => {
-          const tag = tagOf[x] && tagOf[x] !== label ? ` <span class="muted small">(${escapeHtml(tagOf[x])})</span>` : "";
-          return `<a href="#" data-goto="${escapeHtml(x)}">${escapeHtml(x)}</a>${tag}`;
-        }).join(", ")}</span></div>` : "");
+    // A row per group: the tag most of them share is said once, the first few are listed and the rest fold away.
+    const TODO_SHOWN = 6;
+    const todoRow = (k, label) => {
+      const syms = todo[k] || [];
+      if (!syms.length) return "";
+      const counts = {};
+      for (const x of syms) counts[tagOf[x]] = (counts[tagOf[x]] || 0) + 1;
+      const common = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+      const shared = common && common !== "undefined" && common !== label && counts[common] > 1;
+      const link = (x) => {
+        const tag = tagOf[x] && tagOf[x] !== label && !(shared && tagOf[x] === common) ? ` <span class="muted small">(${escapeHtml(tagOf[x])})</span>` : "";
+        return `<a href="#" data-goto="${escapeHtml(x)}">${escapeHtml(x)}</a>${tag}`;
+      };
+      const head = shared ? ` <span class="muted small">${counts[common] === syms.length ? "all" : "mostly"} ${escapeHtml(common)}</span>` : "";
+      const rest = syms.slice(TODO_SHOWN);
+      return `<div class="todo-row"><span class="act ${k}">${label}</span><span><span class="todo-count">${syms.length}</span>${head}
+        <span class="todo-syms">${syms.slice(0, TODO_SHOWN).map(link).join(", ")}${rest.length
+          ? ` <details class="todo-more"><summary>+${rest.length} more</summary>${rest.map(link).join(", ")}</details>` : ""}</span></span></div>`;
+    };
     $("tiles").innerHTML = `
       <div class="tile todo">
         <h3>What to do</h3>
@@ -233,6 +248,11 @@
     $("s-telegramToken").value = "";
     $("s-telegramToken").placeholder = st.hasTelegramToken ? "saved ✓ (leave empty to keep)" : "from @BotFather";
     $("costsSummary").textContent = `${st.feePct}% per trade · ${st.dividendTaxPct}% dividend tax`;
+    $("rulesSummary").textContent = st.capital
+      ? `Capital ${Number(st.capital).toLocaleString()} ${st.currency || ""} · max loss ${st.riskPct}% a trade, ${st.maxTotalRiskPct}% in all · max ${st.maxPositionPct}% in one stock`
+      : "Set your capital so the app can tell you how many shares to buy";
+    if (!st.capital && !state.rulesOpened) $("rulesPanel").open = true; // nothing set up yet: show the form
+    state.rulesOpened = true;
     $("alertsSummary").textContent = st.alertsOn ? (st.hasTelegramToken && st.telegramChatId ? "on" : "on, not set up yet") : "off";
   }
 
@@ -442,6 +462,7 @@
       e.target != null ? `target <b class="tgt">${fmt(e.target)}</b>${e.toTargetPct != null ? ` <span class="muted">${pct(e.toTargetPct)}</span>` : ""}` : "",
       e.nextEarnings ? `<span title="Next results date">results ${escapeHtml(e.nextEarnings)}</span>` : "",
       e.position === "none" && e.decision?.applicable ? `checklist <span class="verdict ${e.decision.verdict}">${escapeHtml(e.decision.label)}</span>` : "",
+      e.decision?.rating ? `rating <span class="rsig ${e.decision.rating.signal.key}" title="${escapeHtml(e.decision.rating.signal.text)}">${escapeHtml(e.decision.rating.signal.label)}</span>` : "",
     ].filter(Boolean).join(" · ");
 
     return `
@@ -510,9 +531,24 @@
       $(`f-${k}`).title = fromTrades ? "Set by this asset's trades" : "";
     }
     $("formTitle").textContent = e ? `Edit ${e.symbol}` : "Add an index or stock";
-    $("cancelEdit").hidden = !e;
-    if (e) $("entryForm").scrollIntoView({ behavior: "smooth", block: "start" });
+    if (e) {
+      showEntryForm(true);
+      $("entryForm").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
+
+  // The add / edit form stays folded away until it's needed.
+  function showEntryForm(open) {
+    $("entryForm").hidden = !open;
+    $("addToggle").setAttribute("aria-expanded", String(open));
+    $("addToggle").textContent = open ? "Close form" : "+ Add a stock";
+  }
+  $("addToggle").addEventListener("click", () => {
+    const open = $("entryForm").hidden;
+    if (open) fillForm(null);
+    showEntryForm(open);
+    if (open) $("f-symbol").focus();
+  });
 
   $("entryForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -526,6 +562,7 @@
     try {
       await api("/api/profile/entries", { method: "PUT", body: JSON.stringify(entry) });
       fillForm(null);
+      showEntryForm(false);
       await load();
     } catch (err) {
       setStatus(escapeHtml(err.message), true);
@@ -534,7 +571,16 @@
     }
   });
 
-  $("cancelEdit").addEventListener("click", () => fillForm(null));
+  $("cancelEdit").addEventListener("click", () => { fillForm(null); showEntryForm(false); });
+
+  // Links to #settingsForm (from the chart page or a tile) open the rules panel.
+  function openRulesFromHash() {
+    if (location.hash !== "#settingsForm") return;
+    $("rulesPanel").open = true;
+    $("rulesPanel").scrollIntoView({ block: "start" });
+  }
+  window.addEventListener("hashchange", openRulesFromHash);
+  openRulesFromHash();
 
   async function alertAction(url, okText) {
     try {

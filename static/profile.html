@@ -33,10 +33,14 @@
   <main class="screener profile">
     <div class="screener-head">
       <h1><input id="profileName" class="name-input" placeholder="My profile" maxlength="60" title="Your name" /> <span id="count" class="badge">0</span></h1>
+      <div class="head-actions">
+        <button type="button" id="addToggle" class="primary" aria-expanded="false" aria-controls="entryForm">+ Add a stock</button>
+      </div>
     </div>
 
+    <details id="rulesPanel" class="rules-panel">
+      <summary><span class="rules-title">My money &amp; rules</span> <span class="muted small" id="rulesSummary">used to tell you how many shares to buy</span></summary>
     <form id="settingsForm" class="settings-bar" autocomplete="off">
-      <div class="form-title">My money &amp; rules <span class="muted small">used to tell you how many shares to buy</span></div>
       <label>Capital<input id="s-capital" type="number" min="0" step="any" placeholder="e.g. 200000" /></label>
       <label>Currency<input id="s-currency" value="EGP" maxlength="8" /></label>
       <label title="If a stop-loss is hit, you lose at most this share of your capital">Max loss per trade
@@ -132,13 +136,14 @@
         <p class="muted small">Checks run Sunday–Thursday 10:00–14:45 Cairo time while this app is running, and only new items are sent. The token stays on this computer; to remove it, type <code>clear</code> and Save.</p>
       </details>
     </form>
+    </details>
 
     <section id="summaryPanel" class="summary-panel" hidden>
       <div class="tiles" id="tiles"></div>
       <div id="attention" class="attention"></div>
     </section>
 
-    <form id="entryForm" class="entry-form" autocomplete="off">
+    <form id="entryForm" class="entry-form" autocomplete="off" hidden>
       <div class="form-title"><span id="formTitle">Add an index or stock</span></div>
       <label>Symbol<input id="f-symbol" list="examples" placeholder="EGX30, COMI.CA, ^GSPC" required /></label>
       <datalist id="examples">
@@ -181,7 +186,7 @@
       <label class="wide">Note<textarea id="f-note" rows="2" maxlength="500" placeholder="Why I hold it / what I'm waiting for"></textarea></label>
       <div class="form-actions">
         <button type="submit" class="primary">Save</button>
-        <button type="button" id="cancelEdit" hidden>Cancel</button>
+        <button type="button" id="cancelEdit">Cancel</button>
       </div>
     </form>
 

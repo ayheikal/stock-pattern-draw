@@ -156,14 +156,24 @@ def check_trend(row: dict) -> dict:
     return _check("trend", label, "fail", "Below its 200-day average: don't buy into a long-term downtrend.")
 
 
+def compact(v: float) -> str:
+    """511,359,253 -> "511M", 1,250,000 -> "1.25M", 12,400 -> "12.4K": amounts read at a glance."""
+    for size, unit in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(v) >= size:
+            x = v / size
+            return f"{x:.3g}{unit}" if x < 1000 else f"{x:,.0f}{unit}"
+    return f"{v:,.0f}"
+
+
 def check_liquidity(row: dict, min_adtv: float) -> dict:
     label = "Liquid enough"
     v = row.get("adtv")
     if v is None:
         return _check("liquidity", label, "unknown", "No traded value for this symbol.")
+    cur = f" {row['currency']}" if row.get("currency") else ""
     if v >= min_adtv:
-        return _check("liquidity", label, "pass", f"Trades about {v:,.0f} a day.")
-    return _check("liquidity", label, "warn", f"Thin: about {v:,.0f} a day (your minimum {min_adtv:,.0f}). Hard to sell quickly.")
+        return _check("liquidity", label, "pass", f"Trades about {compact(v)}{cur} a day.")
+    return _check("liquidity", label, "warn", f"Thin: about {compact(v)}{cur} a day (your minimum {compact(min_adtv)}). Hard to sell quickly.")
 
 
 def check_earnings(fund: dict | None, today: date, blackout_days: int) -> dict:
@@ -245,7 +255,9 @@ def verdict(checks: list[dict]) -> dict:
         key, reason = "wait", next(c for c in checks if c["wait"])["detail"]
     elif len(by["warn"]) > MAX_WARNINGS:
         key = "wait"
-        reason = f"{len(by['warn'])} cautions: " + " · ".join(f"{c['label']}: {c['detail']}" for c in by["warn"])
+        # Just the names: each check's own row carries the detail.
+        names = [c["label"][0].lower() + c["label"][1:] for c in by["warn"]]
+        reason = f"{len(names)} cautions: {', '.join(names[:-1])} and {names[-1]}."
     else:
         key = "ready"
         reason = (f"Passes, with one caution. {by['warn'][0]['label']}: {by['warn'][0]['detail']}" if by["warn"]

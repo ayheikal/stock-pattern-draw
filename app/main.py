@@ -47,7 +47,12 @@ async def access_guard(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "Access key required"}, status_code=401)
         return HTMLResponse(access.LOGIN_PAGE, status_code=401)
-    return await call_next(request)
+    response = await call_next(request)
+    if not path.startswith("/api/") and "cache-control" not in response.headers:
+        # Pages and their scripts revalidate on every load (a cheap 304), so after an update the browser never
+        # pairs an old cached page with new scripts.
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 def _times(index: pd.DatetimeIndex, interval: str) -> list:

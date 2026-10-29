@@ -859,7 +859,8 @@ def summarize(entries: list[dict], settings: Settings | None = None, book: dict 
             attention.append({"symbol": s, "kind": "near-stop", "text": f"Within {abs(e['toStopPct']):.1f}% of your stop ({e['stop']:g})."})
         if e.get("thin") and e["position"] != "none":
             attention.append({"symbol": s, "kind": "thin",
-                              "text": f"Thinly traded (about {e['adtv']:,.0f} a day), so selling quickly could move the price."})
+                              "text": f"Thinly traded (about {' '.join(filter(None, [decision.compact(e['adtv']), e.get('currency')]))} "
+                                      "a day), so selling quickly could move the price."})
         if (e.get("corporate") or {}).get("needsDate"):
             attention.append({"symbol": s, "kind": "date",
                               "text": "Add your buy date so bonus shares and dividends are counted in your P/L."})

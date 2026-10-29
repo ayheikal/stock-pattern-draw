@@ -60,7 +60,8 @@
     <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
   </header>
 
-  <section class="filters">
+  <section class="filters" id="filters">
+    <button type="button" id="layersToggle" class="layers-toggle" aria-expanded="false" aria-controls="filters">Layers &amp; filters <span id="layersCount" class="muted"></span></button>
     <label><input type="checkbox" data-cat="reversal" checked /> <span class="dot rev"></span>Reversal</label>
     <label><input type="checkbox" data-cat="continuation" checked /> <span class="dot cont"></span>Continuation</label>
     <label><input type="checkbox" data-cat="trend" checked /> <span class="dot trend"></span>Trend lines</label>
@@ -90,6 +91,19 @@
     </section>
 
     <aside class="sidebar">
+      <div id="decisionSummary" class="decision-summary" hidden>
+        <button type="button" class="ds-item" data-go="decision" data-target="checklist"><span class="ds-k">Buy checklist</span><span id="dsVerdict" class="verdict"></span></button>
+        <button type="button" class="ds-item" data-go="decision" data-target="rating"><span class="ds-k">Rating</span><span id="dsRating" class="rsig"></span></button>
+        <button type="button" class="ds-item" data-go="outlook" data-target="outlook"><span class="ds-k">Chart says</span><span id="dsChart" class="bias"></span></button>
+      </div>
+      <div class="side-tabs" role="tablist" aria-label="Details">
+        <button type="button" role="tab" id="tab-decision" data-tab="decision" aria-controls="panel-decision" aria-selected="true">Decision</button>
+        <button type="button" role="tab" id="tab-outlook" data-tab="outlook" aria-controls="panel-outlook" aria-selected="false">Outlook</button>
+        <button type="button" role="tab" id="tab-patterns" data-tab="patterns" aria-controls="panel-patterns" aria-selected="false">Patterns <span id="count" class="badge">0</span></button>
+        <button type="button" role="tab" id="tab-levels" data-tab="levels" aria-controls="panel-levels" aria-selected="false">Levels</button>
+      </div>
+      <div class="tab-panel" id="panel-decision" role="tabpanel" aria-labelledby="tab-decision">
+      <p id="decisionEmpty" class="empty">The buy checklist and rating cover stocks on daily or weekly bars. Indices, funds and intraday bars have none; see <b>Outlook</b>.</p>
       <section id="checklist" class="checklist-box" hidden>
         <h2>Buy checklist <span id="checklistVerdict" class="verdict"></span></h2>
         <p id="checklistReason" class="checklist-reason"></p>
@@ -98,7 +112,7 @@
           and your money rules from the prices. Rules for a disciplined buy, not a forecast.</p>
       </section>
       <section id="rating" class="rating-box" hidden>
-        <h2>Fundamental + technical <span id="ratingSignal" class="rsig"></span></h2>
+        <h2><span title="Fundamental scorecard crossed with the price trend">Rating</span> <span id="ratingSignal" class="rsig"></span></h2>
         <p id="ratingText" class="checklist-reason"></p>
         <div class="rating-scores">
           <div class="rscore">
@@ -124,6 +138,8 @@
         </details>
         <p id="ratingSource" class="meta note muted small"></p>
       </section>
+      </div>
+      <div class="tab-panel" id="panel-outlook" role="tabpanel" aria-labelledby="tab-outlook" hidden>
       <section id="outlook" class="outlook" hidden>
         <h2>Chart outlook <span id="outlookBias" class="bias"></span></h2>
         <p class="chart-note">A chart reading only: the <a href="/track">Track record</a> shows it has no reliable edge, so it isn't part of the buy checklist.</p>
@@ -137,7 +153,7 @@
         <div id="planSize" class="plan-size" hidden></div>
         <p id="outlookRange" class="meta"></p>
         <div class="decision">
-          <h3>Decision</h3>
+          <h3>What the chart suggests</h3>
           <div class="dec-block">
             <div class="dec-head">
               <span>If you already hold it</span>
@@ -159,10 +175,15 @@
         </details>
         <p class="meta note">Based on chart patterns only. Not a forecast or advice.</p>
       </section>
-      <h2>Detected patterns <span id="count" class="badge">0</span></h2>
-      <ul id="patternList" class="pattern-list"></ul>
-      <h2>Key levels</h2>
-      <ul id="levelList" class="level-list"></ul>
+      </div>
+      <div class="tab-panel" id="panel-patterns" role="tabpanel" aria-labelledby="tab-patterns" hidden>
+        <p class="muted small panel-hint">Newest first. Click one to zoom the chart to it.</p>
+        <ul id="patternList" class="pattern-list"></ul>
+      </div>
+      <div class="tab-panel" id="panel-levels" role="tabpanel" aria-labelledby="tab-levels" hidden>
+        <p class="muted small panel-hint">Support and resistance from repeated turning points, highest first.</p>
+        <ul id="levelList" class="level-list"></ul>
+      </div>
     </aside>
   </main>
 
