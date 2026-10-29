@@ -178,6 +178,7 @@ def api_screen(
     out = scan(syms, interval, period, min_score, min_adtv)
     prof = profile.load()
     ctx = decision.Context(prof)
+    ctx.prefetch(r["symbol"] for r in out["results"] if r.get("currency"))
     for r in out["results"]:
         r["halal"] = shariah.status(prof.shariah, r["symbol"]) if r.get("currency") else None
         r["decision"] = ctx.evaluate(r, interval)

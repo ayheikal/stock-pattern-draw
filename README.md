@@ -30,6 +30,7 @@ and decides whether My profile says Buy / Add more.
 | Growth beats inflation | EPS and revenue growth above your inflation rate | one of them | EPS shrinking and revenue below inflation |
 | Profitable (ROE) | ROE above inflation | ROE positive but below | ROE ≤ 0 |
 | Price vs sector (P/E) | at or below the sector median | up to 2× | above 2×, or no earnings |
+| Fundamental score | Strong (75%+ on the scorecard below) | Average (50–74%) | Weak (below 50%) |
 | Sector outlook | Favour / Accumulate (Sectors page) | Watch, Neutral, Caution | Avoid |
 | Reward vs risk | 2 : 1 or better | 1–2 : 1 | below 1 : 1 with *your* levels (the chart's levels only warn) |
 | Liquid enough | daily value ≥ your minimum | thin | |
@@ -38,8 +39,10 @@ and decides whether My profile says Buy / Add more.
 | Fits my money rules | sized normally, or capped by a size rule | cut by cash, total risk or sector already held; no room (→ Wait) | |
 | Halal | on your Shariah list or tagged halal | tagged not halal | never: halal is a flag |
 
-Any fail gives **Avoid**. Three or more of the first six checks with no data give **Not enough data** (fundamentals come
-from TradingView's EGX screener, so non-EGX stocks always land here). A Wait check or two or more warnings give
+Any fail gives **Avoid**. Three or more of the core checks (trend, growth, ROE, P/E vs sector, sector outlook, reward vs
+risk) with no data give **Not enough data**. Fundamentals come from TradingView's EGX screener, and from Yahoo Finance for
+other stocks; those have no EGX sector, so their P/E-vs-sector and sector checks stay unknown, and their growth and ROE
+are judged against 3% inflation instead of your EGP rate. A Wait check or two or more warnings give
 **Wait**. Otherwise it's **Ready to buy**. Reward vs risk uses your target and stop from My profile when set, else the chart's.
 
 The chart outlook is **not** a check. The Track record shows it has no reliable edge, so it's shown next to the
@@ -50,7 +53,32 @@ The **screener** ranks a watchlist Ready first, then Wait, then Not enough data;
 then the more liquid stock. *Show* lists Ready only, everything but Avoid (the default) or everything, and says how
 many were hidden. Its Target / Stop / R:R columns are the levels the checklist judged, measured from the last price.
 
-`GET /api/decision?symbol=COMI.CA&interval=1d` returns the checks, verdict and the levels it judged.
+`GET /api/decision?symbol=COMI.CA&interval=1d` returns the checks, verdict and the levels it judged, plus the rating below.
+
+## Fundamental + technical rating
+
+Next to the buy checklist ([app/rating.py](app/rating.py)): two scorecards and one signal, **Strong buy**, **Buy**,
+**Hold**, **Reduce** or **Sell**. It's on the chart page (with every figure), as a *Rating* column in the screener, and on
+each profile card. Each figure is Strong / OK / Weak (2 / 1 / 0 points), or not scored when it isn't reported; a scorecard
+is its points as a % of those available.
+
+- **Fundamentals** (needs 5+ figures): valuation (P/E, P/B and EV/EBITDA against the sector median when 3+ companies report
+  them, PEG on growth *after inflation*, free cash flow yield), profitability (ROE and ROIC against inflation, operating and
+  net margin against the sector median), growth (revenue and EPS against inflation), debt (debt-to-equity, net debt /
+  EBITDA), liquidity (current and quick ratio), cash flow (operating cash flow ÷ net income, FCF margin) and dividends
+  (payout ratio; the yield is shown, not scored). Strong at 75%+, Average from 50%, Weak below. Banks, brokers, insurers and
+  other lenders skip the debt, liquidity and cash-flow ratios, since debt is their raw material. Red flags (shrinking revenue,
+  weak cash conversion, heavy debt, negative equity, returns below inflation, a payout over 100%…) are listed whatever the score.
+- **Technicals** (needs 4+ checks, daily or weekly bars): above the 200-day and 50-day averages, 50-day above 200-day,
+  200-day average rising, 6-month momentum, RSI and distance from the 52-week high (40 / 10 weeks etc. on weekly bars).
+  Uptrend at 65%+, Downtrend at 35% or less, else Mixed. Chart patterns aren't part of it.
+- **Signal** = fundamentals × trend: Strong + Uptrend gives *Strong buy*, Strong + Downtrend *Watch for a turn*, Average +
+  Uptrend *Buy (trend-led)*, Average + Downtrend or Weak + Mixed *Reduce*, and Weak + Downtrend *Sell*.
+
+The rating summarizes; the checklist decides. A stock can be *Ready to buy* while rated *Hold*: the checklist adds reward vs
+risk, liquidity, results dates and your money rules. In My profile, a holding rated **Sell** shows under *Needs attention*
+and is sent as a Telegram alert, but your own stop and target still set its Buy / Hold / Sell tag. Fundamentals can't be
+backtested (there's no history of past figures), and TradingView leaves many EGX figures blank, so check *figures scored*.
 
 ## Run
 

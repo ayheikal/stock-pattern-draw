@@ -209,7 +209,17 @@
     return `<div class="card-block checklist-block"><h3>Buy checklist</h3>
       <div><span class="verdict ${d.verdict}">${escapeHtml(d.label)}</span> <span class="muted small">${d.passed} of ${d.known} checks with data pass</span></div>
       <div class="small" style="margin-top:6px">${escapeHtml(d.reason)}</div>
+      ${ratingLine(d.rating)}
       <details><summary>All checks</summary><ul class="checklist">${list}</ul></details></div>`;
+  }
+
+  // The fundamental + technical rating in one line (the chart page has the full scorecards).
+  function ratingLine(r) {
+    if (!r) return "";
+    const f = r.fundamental, t = r.technical || {};
+    return `<div class="small rating-line" title="${escapeHtml(r.signal.text)}">Fundamental + technical:
+      <span class="rsig ${r.signal.key}">${escapeHtml(r.signal.label)}</span>
+      <span class="muted">fundamentals ${f.pct == null ? "n/a" : `${f.pct}%`} (${escapeHtml(f.label.toLowerCase())}) · ${escapeHtml((t.label || "No trend").toLowerCase())}</span></div>`;
   }
 
   const SETTINGS = ["capital", "currency", "riskPct", "maxPositionPct", "maxAdtvPct", "maxTotalRiskPct", "maxSectorPct",

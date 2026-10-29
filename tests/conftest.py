@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-from app import egx
+from app import egx, rating
 
 
-def _offline():
+def _offline(*_args):
     raise OSError("offline in tests")
 
 
@@ -16,3 +16,4 @@ def _isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("PATTERN_NO_ALERTS", "1")
     monkeypatch.setattr(egx, "fetch_market", _offline)
     monkeypatch.setattr(egx, "fetch_fundamentals", _offline)
+    monkeypatch.setattr(rating, "_yahoo_info", _offline)

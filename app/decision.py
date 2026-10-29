@@ -7,11 +7,15 @@ never counts as a pass. Rules:
   - 3+ of the core checks unknown     -> Not enough data
   - a check that says "wait" (results due soon, stale data, no room in my rules), or 2+ warnings -> Wait
   - otherwise                         -> Ready to buy
-Fundamentals come from TradingView's EGX screener, so stocks outside the EGX have no growth / value checks.
+Fundamentals come from TradingView's EGX screener, and from Yahoo Finance for stocks outside the EGX (which have no
+sector median, so no P/E-vs-sector check). The fundamental + technical rating (rating.py) is attached to the result,
+and its fundamental score is one of the checks.
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+
+from . import rating as ratings
 
 CORE = ("growth", "quality", "valuation", "sector", "trend", "rr")
 MAX_UNKNOWN_CORE = 2      # more core checks unknown than this: not enough data to call it
@@ -38,6 +42,11 @@ def _check(key: str, label: str, status: str, detail: str, wait: bool = False) -
 
 def is_egx(symbol: str, currency: str | None = None) -> bool:
     return symbol.endswith(".CA") or symbol.startswith("EGX:") or currency == "EGP"
+
+
+def yahoo_stock(symbol: str) -> bool:
+    """Could be a stock Yahoo has fundamentals for: not EGX, not an index (^GSPC), FX (EURUSD=X) or TradingView code."""
+    return not is_egx(symbol) and not symbol.startswith("^") and not any(c in symbol for c in "=:")
 
 
 def sessions_missed(last: date, today: date, egx: bool, holidays=()) -> int:
@@ -109,6 +118,23 @@ def check_valuation(fund: dict | None, sector: dict | None) -> dict:
     if pe <= median * PE_PRICEY:
         return _check("valuation", label, "warn", text + ": pricier than its sector.")
     return _check("valuation", label, "fail", text + f": more than {PE_PRICEY:g}× its sector.")
+
+
+def check_fundamentals(rating: dict | None) -> dict:
+    """The fundamental scorecard (valuation, profitability, growth, debt, liquidity, cash flow) as one check."""
+    label = "Fundamental score"
+    f = (rating or {}).get("fundamental")
+    if not f or f["grade"] == "unknown":
+        n = f["scored"] if f else 0
+        return _check("fundamentals", label, "unknown", f"Only {n} of the scorecard's figures are reported: too few to score.")
+    weakest = [c["label"].lower() for c in sorted(f["categories"], key=lambda c: c["pct"] if c["pct"] is not None else 101)
+               if c["pct"] is not None and c["pct"] < ratings.FUND_FAIR][:2]
+    text = f"{f['pct']}% across {f['scored']} figures"
+    if f["grade"] == "strong":
+        return _check("fundamentals", label, "pass", text + ": a strong business on most measures.")
+    if f["grade"] == "fair":
+        return _check("fundamentals", label, "warn", text + ": average." + (f" Weakest: {', '.join(weakest)}." if weakest else ""))
+    return _check("fundamentals", label, "fail", text + ": most figures fall short." + (f" Weakest: {', '.join(weakest)}." if weakest else ""))
 
 
 def check_sector(sector: dict | None) -> dict:
@@ -232,8 +258,9 @@ def verdict(checks: list[dict]) -> dict:
 
 
 def checklist(row: dict, *, fund: dict | None, sector: dict | None, halal: dict | None, settings, inflation_pct: float,
-              plan: dict | None, sizing: dict | None, today: date, interval: str = "1d") -> dict:
-    """The checks and the verdict for one stock. `row` is a screener scan row; `settings` the profile's."""
+              plan: dict | None, sizing: dict | None, today: date, interval: str = "1d", rating: dict | None = None) -> dict:
+    """The checks and the verdict for one stock. `row` is a screener scan row; `settings` the profile's;
+    `rating` the fundamental + technical rating (rating.rate), shown alongside and scored as one check."""
     if not row.get("currency"):
         return {"applicable": False, "verdict": "index", "label": "Index", "rank": 9,
                 "reason": "An index can't be bought directly; use a fund that tracks it.", "checks": []}
@@ -242,6 +269,7 @@ def checklist(row: dict, *, fund: dict | None, sector: dict | None, halal: dict 
         check_growth(fund, inflation_pct),
         check_quality(fund, inflation_pct),
         check_valuation(fund, sector),
+        check_fundamentals(rating),
         check_sector(sector),
         check_rr(plan),
         check_liquidity(row, settings.minAdtv),
@@ -258,6 +286,7 @@ def checklist(row: dict, *, fund: dict | None, sector: dict | None, halal: dict 
     out["nextEarnings"] = d.isoformat() if d and d >= today else None
     out["chart"] = {"bias": row.get("bias"), "score": row.get("score"),
                     "note": "Chart reading only: the Track record shows no reliable edge, so it isn't a check."}
+    out["rating"] = rating
     return out
 
 
@@ -298,6 +327,7 @@ class Context:
         except Exception:
             funds = []
         self.funds = {f["symbol"]: f for f in funds}
+        self.medians = ratings.sector_medians(funds)
         try:
             self.sectors = sector_index(funds, prof.inflationPct, prof.sectors, self.today) if funds else {}
         except Exception:
@@ -312,12 +342,33 @@ class Context:
         self.entries = {e.symbol: e for e in prof.entries}
 
     def fund(self, symbol: str) -> dict | None:
+        """TradingView's figures for an EGX stock; Yahoo's for any other stock."""
         from .shariah import key
-        return self.funds.get(key(symbol))
+        f = self.funds.get(key(symbol))
+        if f is None and yahoo_stock(symbol):
+            f = ratings.fetch_yahoo_fundamentals(symbol)
+        return f
+
+    def prefetch(self, symbols) -> None:
+        """Fetch Yahoo fundamentals for many symbols at once, so a scan doesn't wait for them one by one."""
+        from concurrent.futures import ThreadPoolExecutor
+        todo = [s for s in dict.fromkeys(symbols) if s and yahoo_stock(s)]
+        if todo:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(ratings.fetch_yahoo_fundamentals, todo))
 
     def sector(self, symbol: str) -> dict | None:
+        """The EGX sector outlook; Yahoo's sector names don't match EGX sectors, so other stocks have none."""
         f = self.fund(symbol)
-        return self.sectors.get(f["sector"]) if f and f.get("sector") else None
+        return self.sectors.get(f["sector"]) if f and f.get("sector") and f.get("source") != "yahoo" else None
+
+    def rating(self, row: dict) -> dict | None:
+        """The fundamental + technical rating for a scan row (None for indices)."""
+        if not row.get("currency"):
+            return None
+        f = self.fund(row["symbol"])
+        medians = self.medians.get(f["sector"]) if f and f.get("sector") and f.get("source") != "yahoo" else None
+        return ratings.rate(f, medians, ratings.inflation_for(row["currency"], self.prof.inflationPct), row.get("tech"))
 
     def entry(self, row: dict):
         from .shariah import key
@@ -338,4 +389,5 @@ class Context:
                 row.get("adtv"), book=self.book, sector=(self.fund(row["symbol"]) or {}).get("sector"))
         return checklist(row, fund=self.fund(row["symbol"]), sector=self.sector(row["symbol"]),
                          halal=shariah.status(self.prof.shariah, row["symbol"]), settings=self.prof.settings,
-                         inflation_pct=self.prof.inflationPct, plan=plan, sizing=sizing, today=self.today, interval=interval)
+                         inflation_pct=ratings.inflation_for(row.get("currency"), self.prof.inflationPct),
+                         plan=plan, sizing=sizing, today=self.today, interval=interval, rating=self.rating(row))

@@ -871,6 +871,12 @@ def summarize(entries: list[dict], settings: Settings | None = None, book: dict 
             attention.append({"symbol": s, "kind": "earnings",
                               "text": f"Results due on {e['nextEarnings']} (in {days} days). The price can jump either way; "
                                       "check your stop, or trim if a gap past it would hurt too much."})
+        signal = ((e.get("decision") or {}).get("rating") or {}).get("signal") or {}
+        if e["position"] == "long" and signal.get("key") == "sell":
+            f = e["decision"]["rating"]["fundamental"]
+            attention.append({"symbol": s, "kind": "rating",
+                              "text": f"Fundamentals are weak ({f['pct']}%) and the price is in a downtrend. "
+                                      "Review whether to keep holding: tighten your stop, trim, or sell."})
         if e.get("stale"):
             attention.append({"symbol": s, "kind": "stale",
                               "text": f"No new price since {e['lastBar']}: suspended, or the data feed is behind. Check before acting."})
@@ -968,7 +974,8 @@ def live_profile(interval: str, period: str) -> dict:
     # Two passes: the first gives every position's cost, value and risk (the book), the second
     # sizes buys against what that book leaves and runs the buy checklist.
     ctx = decision.Context(prof, book={})
-    first = [compare(e, r, t, prof.settings, a, fx) for e, r, t, a in zip(prof.entries, rows, tracks, acts)]
+    ctx.prefetch(r["symbol"] for r in rows if "error" not in r and r.get("currency"))
+    first =[compare(e, r, t, prof.settings, a, fx) for e, r, t, a in zip(prof.entries, rows, tracks, acts)]
     ctx.book = book_of(first, prof.settings, lambda s: (ctx.fund(s) or {}).get("sector"))
     entries = [compare(e, r, t, prof.settings, a, fx, ctx, interval) for e, r, t, a in zip(prof.entries, rows, tracks, acts)]
     for e, r in zip(entries, rows):

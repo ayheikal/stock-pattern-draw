@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .data import InsufficientHistory, SymbolNotFound, fetch_ohlcv
 from .outlook import build_outlook
 from .patterns import analyze
+from .rating import technical_score
 
 # Built-in watchlists. Unknown or delisted codes are simply reported as skipped.
 UNIVERSES: dict[str, dict] = {
@@ -108,6 +109,7 @@ def _analyze_one(symbol: str, interval: str, period: str) -> dict:
         "signal": o["drivers"][0]["text"] if o["drivers"] else "",
         "adtv": adtv(df, interval, meta.get("currency")),
         "lastBar": df.index[-1].strftime("%Y-%m-%d"),
+        "tech": technical_score(df, interval),  # the technical scorecard behind the rating (rating.py)
     }
 
 

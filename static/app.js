@@ -244,6 +244,7 @@
   async function renderChecklist() {
     const box = $("checklist"), d = state.data;
     box.hidden = true;
+    $("rating").hidden = true;
     if (!d.currency || !["1d", "1wk"].includes(d.interval)) return; // indices and intraday bars: no checklist
     let c;
     try {
@@ -260,6 +261,49 @@
     $("checklistItems").innerHTML = c.checks.map((k) => `
       <li class="${k.status}"><span class="ic">${CHECK_ICON[k.status]}</span><span class="lbl">${escapeHtml(k.label)}</span>
         <span class="det">${escapeHtml(k.detail)}</span></li>`).join("");
+    box.hidden = false;
+    renderRating(c.rating);
+  }
+
+  // ---------- fundamental + technical rating (part of /api/decision) ----------
+  const SIGNED = new Set(["aboveLong", "aboveShort", "slope", "momentum", "nearHigh"]);
+  const level = (p, good, ok) => (p == null ? "" : p >= good ? "good" : p >= ok ? "warn" : "bad");
+  function ratingValue(i) {
+    if (i.value == null) return "—";
+    if (i.unit === "%") return `${SIGNED.has(i.key) && i.value > 0 ? "+" : ""}${i.value.toFixed(1)}%`;
+    if (i.unit === "×") return `${i.value.toFixed(2)}×`;
+    return i.value.toFixed(0);
+  }
+  const ratingItems = (items) => items.map((i) => `
+    <li class="${i.status}"><span class="ri-dot"></span><span class="ri-lbl">${escapeHtml(i.label)}</span><span class="ri-val">${ratingValue(i)}</span>
+      <span class="ri-det">${escapeHtml([i.note, i.rule].filter(Boolean).join(" · "))}</span></li>`).join("");
+  function setScore(prefix, pct, label, lv) {
+    $(`rating${prefix}Pct`).textContent = pct == null ? "n/a" : `${pct}%`;
+    const bar = $(`rating${prefix}Bar`);
+    bar.style.width = `${pct || 0}%`;
+    bar.className = lv;
+    $(`rating${prefix}Label`).textContent = label;
+  }
+  function renderRating(r) {
+    const box = $("rating");
+    if (!r) return;
+    const f = r.fundamental, t = r.technical || { items: [], pct: null, label: "Not enough data" }, s = r.signal;
+    const sig = $("ratingSignal");
+    sig.textContent = s.label;
+    sig.className = `rsig ${s.key}`;
+    $("ratingText").innerHTML = `${escapeHtml(s.text)}${s.score != null ? ` <span class="muted small">Combined score ${s.score}%.</span>` : ""}`;
+    setScore("Fund", f.pct, `${f.label} · ${f.scored} figures scored${f.financial ? " · bank / lender rules" : ""}`, level(f.pct, 75, 50));
+    setScore("Tech", t.pct, `${t.label} · ${t.scored || 0} checks scored`, level(t.pct, 65, 36));
+    $("ratingNotes").innerHTML = s.notes.filter((n) => !/red flag/.test(n)).map((n) => `<li>${escapeHtml(n)}</li>`).join("");
+    $("ratingFlags").innerHTML = f.flags.map((x) => `<li><b>${escapeHtml(x.title)}</b> ${escapeHtml(x.text)}</li>`).join("");
+    $("ratingFundDetail").innerHTML = f.categories.map((c) => `
+      <div class="rcat">
+        <div class="rcat-head"><span>${escapeHtml(c.label)}</span><span class="muted">${c.max ? `${c.points}/${c.max}` : "not scored"}</span></div>
+        <div class="rbar"><i class="${level(c.pct, 75, 50)}" style="width:${c.pct || 0}%"></i></div>
+        <ul class="rating-items">${ratingItems(c.items)}</ul>
+      </div>`).join("");
+    $("ratingTechDetail").innerHTML = t.items.length ? ratingItems(t.items) : '<li class="na">Only daily and weekly bars are scored.</li>';
+    $("ratingSource").textContent = `Fundamentals: ${r.source || "none reported"}${f.inflationPct != null ? `, growth and returns after ${f.inflationPct}% inflation` : ""}. ${r.note}`;
     box.hidden = false;
   }
 

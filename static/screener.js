@@ -51,7 +51,9 @@
       state.rows = body.results.map((r) => {
         const p = r.decision.plan;
         const levels = p ? { upTarget: p.target, upsidePct: p.upsidePct, stop: p.stop, rr: p.rr } : { stop: null, rr: null };
-        return { ...r, ...levels, verdictRank: r.decision.rank * 100 - (r.decision.passed || 0) };
+        const s = r.decision.rating && r.decision.rating.signal;
+        return { ...r, ...levels, verdictRank: r.decision.rank * 100 - (r.decision.passed || 0),
+                 ratingRank: s ? s.rank * 1000 - (s.score || 0) : null };
       });
       state.interval = params.interval;
       state.sortKey = null;
@@ -71,6 +73,13 @@
     } finally {
       btn.disabled = false;
     }
+  }
+
+  function ratingCell(rt) {
+    if (!rt) return '<span class="muted">—</span>';
+    const f = rt.fundamental, t = rt.technical || {};
+    return `<span class="rsig ${rt.signal.key}" title="${escapeHtml(rt.signal.text)}">${escapeHtml(rt.signal.label)}</span>
+      <div class="muted">F ${f.pct == null ? "n/a" : `${f.pct}%`} · ${escapeHtml(t.label || "No trend")}</div>`;
   }
 
   function renderTable() {
@@ -93,6 +102,7 @@
         <td><div class="sym">${escapeHtml(r.symbol)} ${halalBadge(r.halal)}</div><div class="muted small">${escapeHtml(r.name)}</div></td>
         <td class="checks-cell" title="${escapeHtml(r.decision.reason)}"><span class="verdict ${r.decision.verdict}">${escapeHtml(r.decision.label)}</span>
           ${r.decision.applicable ? `<div class="muted">${r.decision.passed}/${r.decision.known} pass</div>` : ""}</td>
+        <td class="rating-cell">${ratingCell(r.decision.rating)}</td>
         <td class="num">${fmt(r.last)}</td>
         <td class="num ${r.changePct >= 0 ? "up" : "down"}">${pct(r.changePct)}</td>
         <td class="num ${r.upsidePct >= 0 ? "up" : "down"}">${pct(r.upsidePct)}</td>
@@ -114,7 +124,7 @@
     const th = e.target.closest("th[data-k]");
     if (!th) return;
     const k = th.dataset.k;
-    state.sortDir = state.sortKey === k ? -state.sortDir : (["symbol", "verdictRank", "nextEarnings", "signal"].includes(k) ? 1 : -1);
+    state.sortDir = state.sortKey === k ? -state.sortDir : (["symbol", "verdictRank", "ratingRank", "nextEarnings", "signal"].includes(k) ? 1 : -1);
     state.sortKey = k;
     renderTable();
   });

@@ -24,7 +24,7 @@ SESSION_OPEN, SESSION_CLOSE = dtime(10, 0), dtime(14, 45)  # EGX ~10:00-14:30, p
 # Actions worth a message when they appear; plain Hold / Wait / Watch are the quiet default.
 QUIET_ACTIONS = {"Hold", "Wait", "Watch"}
 ICON = {"stop": "⛔", "target": "🎯", "near-stop": "⚠️", "big": "⚖️", "risk": "💸", "no-stop": "🛑", "thin": "💧",
-        "earnings": "🗓️", "stale": "⏸️", "total-risk": "💸", "sector": "🧺",
+        "earnings": "🗓️", "stale": "⏸️", "total-risk": "💸", "sector": "🧺", "rating": "📉",
         "sell": "🔴", "buy": "🟢", "caution": "🟠"}
 
 DEFAULT_STATE = Path(__file__).resolve().parent.parent / "data" / "alerts_state.json"

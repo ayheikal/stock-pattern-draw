@@ -119,7 +119,12 @@ FUND_COLUMNS = ["name", "description", "sector", "industry", "market_cap_basic",
                 "total_revenue_yoy_growth_ttm", "total_revenue_qoq_growth_fq",
                 "earnings_per_share_diluted_yoy_growth_ttm", "earnings_per_share_diluted_qoq_growth_fq",
                 "return_on_equity", "net_margin", "price_earnings_ttm", "dividends_yield_current",
-                "earnings_release_next_date", "Perf.1M", "Perf.3M", "Perf.Y", "close", "SMA50", "SMA200", "RSI"]
+                "earnings_release_next_date", "Perf.1M", "Perf.3M", "Perf.Y", "close", "SMA50", "SMA200", "RSI",
+                # for the fundamental scorecard (rating.py); many EGX companies leave some of these blank
+                "price_book_fq", "enterprise_value_ebitda_ttm", "return_on_invested_capital", "operating_margin_ttm",
+                "debt_to_equity_fq", "net_debt_fq", "ebitda_ttm", "current_ratio_fq", "quick_ratio_fq",
+                "cash_f_operating_activities_ttm", "net_income_ttm", "free_cash_flow_margin_ttm", "price_free_cash_flow_ttm",
+                "dividend_payout_ratio_ttm"]
 REAL_GROWTH_BAND = 5.0   # real (after-inflation) median growth beyond ±this counts for or against a sector
 GROWING_SHARE_HI = 60    # at least this % of companies with real earnings growth counts for a sector...
 GROWING_SHARE_LO = 40    # ...and at most this % counts against it
@@ -187,6 +192,20 @@ def fetch_fundamentals() -> dict:
             "sma50": _num(d["SMA50"]),
             "sma200": _num(d["SMA200"]),
             "rsi": _num(d["RSI"]),
+            "pb": _num(d["price_book_fq"]),
+            "evEbitda": _num(d["enterprise_value_ebitda_ttm"]),
+            "roic": _num(d["return_on_invested_capital"]),
+            "opMargin": _num(d["operating_margin_ttm"]),
+            "debtToEquity": _num(d["debt_to_equity_fq"]),
+            "netDebt": _num(d["net_debt_fq"]),
+            "ebitda": _num(d["ebitda_ttm"]),
+            "currentRatio": _num(d["current_ratio_fq"]),
+            "quickRatio": _num(d["quick_ratio_fq"]),
+            "ocf": _num(d["cash_f_operating_activities_ttm"]),
+            "netIncome": _num(d["net_income_ttm"]),
+            "fcfMargin": _num(d["free_cash_flow_margin_ttm"]),
+            "fcfYield": 100 / pfcf if (pfcf := _num(d["price_free_cash_flow_ttm"])) and pfcf > 0 else None,
+            "payout": _num(d["dividend_payout_ratio_ttm"]),
         })
     out = {"asOf": int(time.time()), "stocks": stocks}
     with _lock:

@@ -712,3 +712,47 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .sector-bars { margin-top: 6px; }
 .sector-bars .kv span:last-child { white-space: nowrap; }
 .nowrap { white-space: nowrap; }
+
+/* Fundamental + technical rating: signal pill, two score bars, red flags and per-item rows (chart page, screener, profile) */
+.rsig { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px;
+  padding: 3px 10px; color: #fff; background: var(--muted); white-space: nowrap; }
+.rsig.strong-buy, .rsig.buy { background: var(--bull); }
+.rsig.hold { background: var(--neutral); }
+.rsig.reduce { background: var(--resistance); }
+.rsig.sell { background: var(--bear); }
+.rsig.strong-buy::before { content: "▲ "; }
+.rsig.sell::before { content: "▼ "; }
+.rating-box { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 18px; background: var(--panel); }
+.rating-box h2 { margin-top: 0; justify-content: space-between; }
+.rating-box details { margin-top: 8px; }
+.rating-box summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.rating-scores { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 8px; }
+.rs-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.rs-head b { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
+.rbar { height: 6px; border-radius: 999px; background: var(--hover); border: 1px solid var(--border); overflow: hidden; margin: 4px 0; }
+.rbar i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--muted); transition: width .3s; }
+.rbar i.good { background: var(--bull); }
+.rbar i.warn { background: var(--resistance); }
+.rbar i.bad { background: var(--bear); }
+.rating-notes, .rating-flags { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; font-size: 12px; line-height: 1.45; }
+.rating-notes li { color: var(--muted); }
+.rating-flags li { padding: 6px 10px; border-left: 3px solid var(--bear); background: color-mix(in srgb, var(--bear) 7%, var(--panel)); border-radius: var(--radius-sm); color: var(--muted); }
+.rating-flags b { color: var(--text); }
+.rcat { margin-top: 10px; }
+.rcat-head { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
+.rcat-head .muted { font-weight: 500; font-size: 12px; font-variant-numeric: tabular-nums; }
+.rating-items { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12.5px; }
+.rating-items li { display: grid; grid-template-columns: 10px 1fr auto; gap: 1px 8px; align-items: baseline; padding: 4px 0; border-top: 1px dashed var(--border); }
+.rating-items li:first-child { border-top: 0; }
+.ri-dot { width: 8px; height: 8px; border-radius: 50%; background: transparent; border: 1.5px solid var(--muted); align-self: center; }
+.rating-items .strong .ri-dot { background: var(--bull); border-color: var(--bull); }
+.rating-items .ok .ri-dot { background: var(--resistance); border-color: var(--resistance); }
+.rating-items .weak .ri-dot { background: var(--bear); border-color: var(--bear); }
+.rating-items .na .ri-lbl, .rating-items .na .ri-val { color: var(--muted); }
+.ri-val { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.ri-det { grid-column: 2 / -1; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.ri-det:empty { display: none; }
+.rating-cell { white-space: nowrap; }
+.rating-cell .muted { font-size: 12px; }
+.rating-line { margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .rbar i { transition: none; } }
