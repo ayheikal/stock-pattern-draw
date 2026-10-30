@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
-from . import access, alerts, backtest, decision, profile, shariah
+from . import access, alerts, backtest, decision, profile, shariah, valuation
 from .outlook import build_outlook
 from .patterns import analyze
 from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
@@ -453,6 +453,21 @@ def api_sector_view(slug: str, view: profile.SectorView):
     return _sectors_payload(profile.set_sector(slug, view))
 
 
+@app.get("/api/value")
+def api_value(margin: float = Query(valuation.MARGIN_PCT, ge=0, le=90, description="Price at least this % under fair value")):
+    """EGX stocks priced under the fair value their peers' multiples give them, sorted Buy zone first."""
+    from .egx import fetch_fundamentals
+    try:
+        funds = fetch_fundamentals()
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't load EGX company financials: {str(e)[:120]}")
+    prof = profile.load()
+    out = {"asOf": funds["asOf"]} | valuation.screen(funds["stocks"], prof.inflationPct, margin)
+    for r in out["results"]:
+        r["halal"] = shariah.status(prof.shariah, r["symbol"])
+    return out
+
+
 @app.get("/api/alerts/status")
 def api_alerts_status():
     s = profile.load().settings
@@ -525,6 +540,11 @@ def track_page():
 @app.get("/sectors")
 def sectors_page():
     return FileResponse(STATIC / "sectors.html")
+
+
+@app.get("/value")
+def value_page():
+    return FileResponse(STATIC / "value.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

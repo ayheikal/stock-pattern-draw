@@ -80,6 +80,28 @@ risk, liquidity, results dates and your money rules. In My profile, a holding ra
 and is sent as a Telegram alert, but your own stop and target still set its Buy / Hold / Sell tag. Fundamentals can't be
 backtested (there's no history of past figures), and TradingView leaves many EGX figures blank, so check *figures scored*.
 
+## Below fair value
+
+`/value` lists EGX stocks priced under what their peers' multiples say they're worth ([app/valuation.py](app/valuation.py)).
+Each stock gets a fair price from the median P/E, P/B and (except banks and other lenders) EV/EBITDA of its peers: its
+industry when 3+ companies there report the figure, else its sector. Fair value is the median of these estimates. It needs at
+least two, and no single estimate can be more than 3× above or below the price. A stock is listed when its price is
+at least your *margin of safety* (default 20%) under its fair value.
+
+Cheap isn't the same as a chance to buy, so each listed stock also gets the fundamental scorecard and its trend:
+
+| Verdict | Means |
+|---|---|
+| **Buy zone** | cheap, Average or Strong fundamentals, above its 200-day average |
+| **Watch for a turn** | cheap and sound, but below its 200-day average (or too new to tell) |
+| **Check the figures** | cheap, but too few figures to grade the business |
+| **Cheap for a reason** | cheap, but losing money or Weak fundamentals |
+
+Filter by verdict, liquidity (value traded in the latest session), sector and halal; click a row for its chart and buy
+checklist. This is relative value: an overpriced sector's cheapest stock can still be dear, and a year's profit may include
+one-offs. Only stocks with at least two reported multiples are valued, which is often a minority of the EGX.
+`GET /api/value?margin=20` returns the list.
+
 ## Run
 
 ```powershell

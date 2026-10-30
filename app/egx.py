@@ -124,7 +124,7 @@ FUND_COLUMNS = ["name", "description", "sector", "industry", "market_cap_basic",
                 "price_book_fq", "enterprise_value_ebitda_ttm", "return_on_invested_capital", "operating_margin_ttm",
                 "debt_to_equity_fq", "net_debt_fq", "ebitda_ttm", "current_ratio_fq", "quick_ratio_fq",
                 "cash_f_operating_activities_ttm", "net_income_ttm", "free_cash_flow_margin_ttm", "price_free_cash_flow_ttm",
-                "dividend_payout_ratio_ttm"]
+                "dividend_payout_ratio_ttm", "Value.Traded"]
 REAL_GROWTH_BAND = 5.0   # real (after-inflation) median growth beyond ±this counts for or against a sector
 GROWING_SHARE_HI = 60    # at least this % of companies with real earnings growth counts for a sector...
 GROWING_SHARE_LO = 40    # ...and at most this % counts against it
@@ -206,6 +206,7 @@ def fetch_fundamentals() -> dict:
             "fcfMargin": _num(d["free_cash_flow_margin_ttm"]),
             "fcfYield": 100 / pfcf if (pfcf := _num(d["price_free_cash_flow_ttm"])) and pfcf > 0 else None,
             "payout": _num(d["dividend_payout_ratio_ttm"]),
+            "value": _num(d["Value.Traded"]) or 0.0,  # EGP traded in the latest session
         })
     out = {"asOf": int(time.time()), "stocks": stocks}
     with _lock:

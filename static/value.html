@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Below Fair Value</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Lens" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Market Lens</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/value" class="current">Value</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <div class="search"><button id="refresh" type="button">Refresh</button></div>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener">
+    <div class="screener-head">
+      <h1>Below fair value <span id="found" class="badge" hidden>0</span>
+        <span class="muted small">EGX stocks priced under what their peers' multiples say they're worth</span></h1>
+      <div id="asOf" class="muted"></div>
+    </div>
+
+    <form id="filters" class="settings-bar scan-bar" autocomplete="off">
+      <label title="How far under its fair value the price must be. A bigger margin leaves more room for the estimate to be wrong">Margin of safety
+        <select id="margin">
+          <option value="10">10%+ below</option>
+          <option value="20" selected>20%+ below</option>
+          <option value="30">30%+ below</option>
+          <option value="50">50%+ below</option>
+        </select></label>
+      <label title="Which verdicts to list">Show
+        <select id="show">
+          <option value="buy">Buy zone only</option>
+          <option value="sound" selected>Buy zone + watch</option>
+          <option value="known">All but cheap for a reason</option>
+          <option value="all">Everything cheap</option>
+        </select></label>
+      <label title="Skip stocks that traded less than this value in the latest session (thin stocks are hard to exit)">Liquidity
+        <select id="minValue">
+          <option value="0">Any</option>
+          <option value="1000000" selected>1M+ traded</option>
+          <option value="5000000">5M+ traded</option>
+          <option value="20000000">20M+ traded</option>
+        </select></label>
+      <label>Sector
+        <select id="sector"><option value="">All sectors</option></select></label>
+      <label class="check" title="Only stocks on the EGX 33 Shariah list in My profile, or that you tagged halal"><input id="halalOnly" type="checkbox" /> Halal only</label>
+    </form>
+
+    <div id="status" class="status inline">Loading company financials…</div>
+    <div id="summary" class="tiles" hidden></div>
+    <div class="table-wrap">
+      <table id="results" hidden>
+        <thead>
+          <tr>
+            <th data-k="symbol">Symbol</th>
+            <th data-k="rank" title="Buy zone, Watch for a turn, Check the figures or Cheap for a reason">Verdict</th>
+            <th data-k="price" class="num">Price</th>
+            <th data-k="fair" class="num" title="Median of the fair prices from the P/E, P/B and EV/EBITDA of its peers">Fair value</th>
+            <th data-k="discountPct" class="num" title="How far the price is under its fair value">Below fair</th>
+            <th data-k="upsidePct" class="num" title="Gain if the price reaches its fair value">Upside</th>
+            <th title="Each multiple against its peers' median, and the fair price it gives">How it's valued</th>
+            <th data-k="fundPct" class="num" title="Fundamental scorecard (same as the Rating): Strong 75%+, Average 50%+, Weak below">Fundamentals</th>
+            <th data-k="above200" title="Price against its 200-day average">Trend</th>
+            <th data-k="value" class="num" title="Value traded in the latest session">Traded</th>
+            <th data-k="dividendYield" class="num">Dividend</th>
+            <th data-k="nextEarnings" title="Next results date">Results</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted small">
+      <b>Fair value</b> is what the stock would cost at the median multiple of its peers (its industry when 3+ companies
+      there report the figure, else its sector): its earnings at the peers' P/E, its book value at their P/B and, except for
+      banks and other lenders, its operating profit at their EV/EBITDA. The fair price is the median of these (at least two),
+      and no single one can put it more than 3× above or below the price.<br />
+      <b>Cheap isn't the same as a chance to buy:</b> a low multiple often means the market expects worse. So each stock also
+      gets the fundamental scorecard and its long-term trend. <b>Buy zone</b> = cheap, a sound business and above its 200-day
+      average. <b>Watch for a turn</b> = cheap and sound but still falling. <b>Cheap for a reason</b> = losing money or weak
+      fundamentals. This is relative value: if a whole sector is overpriced, its cheapest member can still be dear, and
+      last year's profit may include one-offs. Open the chart and the buy checklist before buying. Click a row to open it.
+      Data comes from TradingView's public screener and may be delayed or incomplete. Not advice.
+    </p>
+  </main>
+
+  <script src="/static/value.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>
