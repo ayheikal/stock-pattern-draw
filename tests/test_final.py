@@ -97,6 +97,45 @@ def test_endpoint_combines_everything_offline(client):
     assert next(e for e in b["evidence"] if e["key"] == "value")["stance"] == "unknown"
 
 
+def fake_call(calls: dict):
+    """call_for stand-in: the decision key and the weighing inputs for each symbol."""
+    def call_for(row, shared, interval):
+        key, pros = calls[row["symbol"]]
+        lab, tone, group = final.DECISIONS[key]
+        ev = [{"key": f"k{i}", "source": "Rating", "reading": "Buy", "stance": "for", "role": "weighs"} for i in range(pros)]
+        return {"symbol": row["symbol"], "name": "", "currency": "EGP", "last": 1.0, "changePct": 0.0, "position": None,
+                "profileSymbol": None, "decision": {"key": key, "label": lab, "group": group, "reason": ""}, "levels": None,
+                "sizing": None, "ticket": None, "evidence": ev}
+    return call_for
+
+
+def test_buy_list_keeps_buys_strongest_first(monkeypatch):
+    from app import screener
+    rows = [live(s) | {"adtv": a} for s, a in (("A.CA", 1e6), ("B.CA", 9e6), ("C.CA", 1e6), ("D.CA", 1e6), ("E.CA", 5e6))]
+    monkeypatch.setattr(screener, "scan", lambda syms, i, p: {"skipped": ["X.CA"], "results": rows + [live("EGX:EGX30", None)]})
+    monkeypatch.setattr(final, "call_for", fake_call({"A.CA": ("buy", 1), "B.CA": ("buy", 1), "C.CA": ("strong-buy", 2),
+                                                      "D.CA": ("dont-buy", 0), "E.CA": ("add", 0)}))
+    out = final.buy_list(["A.CA", "A.CA", "B.CA"])
+    assert [r["symbol"] for r in out["results"]] == ["C.CA", "E.CA", "B.CA", "A.CA"]   # Strong buy, Add more, then the more liquid
+    assert out["checked"] == 5 and out["counts"] == {"buy": 2, "strong-buy": 1, "dont-buy": 1, "add": 1}   # the index isn't a stock
+
+
+def test_buys_endpoint_lists_my_profile_and_caches(client, monkeypatch):
+    from app import screener
+    seen = []
+    monkeypatch.setattr(screener, "scan", lambda syms, i, p: seen.append(syms) or {"skipped": [], "results": [live("COMI.CA")]})
+    monkeypatch.setattr(final, "call_for", fake_call({"COMI.CA": ("buy", 1)}))
+    monkeypatch.setattr(main, "_buys_cache", type(main._buys_cache)(maxsize=4, ttl=60))
+    client.put("/api/profile/entries", json={"symbol": "COMI.CA"})
+    b = client.get("/api/final/buys?universe=profile").json()
+    assert [r["symbol"] for r in b["results"]] == ["COMI.CA"] and "halal" in b["results"][0] and b["asOf"]
+    client.get("/api/final/buys?universe=profile")
+    assert seen == [["COMI.CA"]]                                   # the second visit is served from the cache
+    client.get("/api/final/buys?universe=profile&refresh=true")
+    assert len(seen) == 2
+    assert client.get("/api/final/buys?universe=nope").status_code == 400
+
+
 def test_endpoint_index_and_errors(client):
     b = client.get("/api/final?symbol=EGX30").json()
     assert b["decision"]["key"] == "index" and [e["key"] for e in b["evidence"]] == ["plan", "checklist", "chart"]

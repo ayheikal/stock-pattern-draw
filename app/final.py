@@ -199,13 +199,39 @@ def decide(evidence: list[dict], checklist: dict, held: str | None) -> dict:
 
 # --- one stock, end to end ------------------------------------------------------------------------
 
+class Shared:
+    """What every stock's call needs, fetched once: my profile, fundamentals and sectors (decision.Context),
+    and the EGX market mood. `index_card()` gives EGX 30's card (main._index_card)."""
+
+    def __init__(self, index_card=None):
+        self.prof = profile.load()
+        self.ctx = decision.Context(self.prof)
+        self._index_card, self._mood = index_card, None
+
+    def mood(self) -> dict:
+        if self._mood is None:
+            from .egx import fetch_market, overview
+            try:
+                breadth = overview(fetch_market(), [])["breadth"]
+            except Exception:
+                breadth = None
+            try:
+                index = self._index_card() if self._index_card else None
+            except Exception:
+                index = None
+            self._mood = market_mood(index, breadth)
+        return self._mood
+
+
 def final_decision(symbol: str, interval: str = "1d", index_card=None) -> dict:
-    """Run every analysis for one symbol and combine them. `index_card()` gives EGX 30's card (main._index_card).
-    Raises data.SymbolNotFound / InsufficientHistory like the chart."""
-    from .egx import fetch_market, overview
+    """Run every analysis for one symbol and combine them. Raises data.SymbolNotFound / InsufficientHistory like the chart."""
     row = _analyze_one(symbol, interval, "5y" if interval == "1wk" else "1y")
-    prof = profile.load()
-    ctx = decision.Context(prof)
+    return call_for(row, Shared(index_card), interval) | {"query": symbol}
+
+
+def call_for(row: dict, shared: Shared, interval: str = "1d") -> dict:
+    """The final call for one scan row (screener._analyze_one)."""
+    prof, ctx = shared.prof, shared.ctx
     entry = ctx.entry(row)
     stock = bool(row.get("currency"))
     egx = stock and decision.is_egx(row["symbol"], row.get("currency"))
@@ -229,15 +255,7 @@ def final_decision(symbol: str, interval: str = "1d", index_card=None) -> dict:
     if egx:
         look = (valuation.lookup(list(ctx.funds.values()), row["symbol"], prof.inflationPct) if ctx.funds
                 else {"stock": None, "reason": "EGX company financials couldn't be loaded."})
-        try:
-            breadth = overview(fetch_market(), [])["breadth"]
-        except Exception:
-            breadth = None
-        try:
-            index = index_card() if index_card else None
-        except Exception:
-            index = None
-        mood = market_mood(index, breadth)
+        mood = shared.mood()
 
     halal = shariah.status(prof.shariah, row["symbol"]) if stock else None
     evidence = [ev_plan(card, held is not None), ev_checklist(ck)]
@@ -247,7 +265,7 @@ def final_decision(symbol: str, interval: str = "1d", index_card=None) -> dict:
     call = decide(evidence, ck, held) if stock else _call("index", ck["reason"])
 
     return {
-        "symbol": row["symbol"], "query": symbol, "name": row["name"], "currency": row.get("currency"),
+        "symbol": row["symbol"], "query": row.get("query"), "name": row["name"], "currency": row.get("currency"),
         "last": row["last"], "changePct": row["changePct"], "lastBar": row.get("lastBar"), "interval": interval,
         "inProfile": entry is not None, "profileSymbol": entry.symbol if entry else None, "position": held,
         "holding": card and {k: card.get(k) for k in ("adjQty", "adjAvgCost", "plPct", "plValue", "stop", "target")},
@@ -255,4 +273,40 @@ def final_decision(symbol: str, interval: str = "1d", index_card=None) -> dict:
         "levels": ck.get("plan"), "sizing": sizing if call["group"] == "Buy" and not held else None,  # an add's shares are in the ticket
         "ticket": card and card.get("ticket"),
         "note": "Fundamentals can't be backtested, so this is discipline, not a forecast. Not financial advice.",
+    }
+
+
+# --- a whole watchlist: what to buy now -----------------------------------------------------------
+
+BUY_RANK = {"strong-buy": 0, "add": 1, "buy": 2}
+
+
+def buy_list(symbols: list[str], interval: str = "1d", index_card=None) -> dict:
+    """Every stock in `symbols` whose final call is a buy (Strong buy, Add more, Buy): strongest call first, then more
+    inputs for, then the more liquid. Each is sized on its own, as if it were the only new buy."""
+    from .screener import scan
+    scanned = scan(list(dict.fromkeys(symbols)), interval, "5y" if interval == "1wk" else "1y")
+    rows = [r for r in scanned["results"] if r.get("currency")]
+    shared = Shared(index_card)
+    shared.ctx.prefetch(r["symbol"] for r in rows)
+    calls = []
+    for r in rows:
+        try:
+            calls.append(call_for(r, shared, interval) | {"adtv": r.get("adtv")})
+        except Exception:  # one odd stock shouldn't sink the list
+            scanned["skipped"].append(r["symbol"])
+    counts = {}
+    for c in calls:
+        counts[c["decision"]["key"]] = counts.get(c["decision"]["key"], 0) + 1
+    pros = lambda c: sum(e["stance"] == "for" for e in c["evidence"] if e["role"] == "weighs")
+    buys = sorted((c for c in calls if c["decision"]["group"] == "Buy"),
+                  key=lambda c: (BUY_RANK[c["decision"]["key"]], -pros(c), -(c["adtv"] or 0)))
+    brief = lambda e: {k: e[k] for k in ("key", "source", "reading", "stance", "role")}
+    return {
+        "checked": len(calls), "skipped": scanned["skipped"], "counts": counts,
+        "mood": shared._mood,
+        "results": [{k: c[k] for k in ("symbol", "name", "currency", "last", "changePct", "position", "profileSymbol",
+                                       "decision", "levels", "sizing", "ticket", "adtv")}
+                    | {"evidence": [brief(e) for e in c["evidence"] if e["role"] != "context" or e["key"] == "halal"]}
+                    for c in buys],
     }

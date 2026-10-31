@@ -120,6 +120,12 @@ counts for or against, and its role:
 - **Held:** your plan says sell → do that. Rating Sell → Sell. Two or more against (checklist, rating, fair value, market,
   halal) → Reduce. Your plan says Add more and nothing is against → Add more. Otherwise Hold.
 
+**To buy now** opens with the page: every stock in a list (a screener watchlist, default the 80 most traded EGX stocks,
+or My profile) whose final call is Strong buy, Add more or Buy, strongest first, with shares, stop, target and what
+argued for and against. Each is sized on its own, as if it were your only new buy. A list takes about half a minute to
+check, so it's kept for 15 minutes (*Refresh* checks it again); `GET /api/final/buys?universe=egx_top` returns it.
+Click a row for its full breakdown.
+
 Pick a stock from the My profile chips or type any ticker; `/decide?symbol=COMI.CA` links straight to one.
 `GET /api/final?symbol=COMI.CA&interval=1d` returns the call and every input. Like the checklist, it can't be backtested.
 

@@ -112,8 +112,95 @@
     } catch (_) {}
   }
 
+  // ---------- To buy now: every stock in a list whose final call is a buy ----------
+  const COUNT_LABEL = { "strong-buy": "strong buy", buy: "buy", add: "add more", wait: "wait", unknown: "not enough data", "dont-buy": "don't buy",
+    hold: "hold", reduce: "reduce", sell: "sell" };
+  const halalBadge = (h) => (!h ? "" : h.status === "halal" ? '<span class="halal" title="Halal">Halal</span>' : '<span class="halal not mine" title="Not halal: your own tag">Not halal</span>');
+  let buyAsked = 0;
+
+  function setBuyStatus(msg, isError = false) {
+    const el = $("buyStatus");
+    el.hidden = !msg;
+    el.innerHTML = msg || "";
+    el.classList.toggle("error", isError);
+  }
+
+  function buyRow(r) {
+    const code = r.symbol.replace(/^EGX:/, "").replace(".CA", "");
+    const shares = r.ticket ? r.ticket.qty : r.sizing && r.sizing.ok ? r.sizing.shares : null;
+    const stop = r.sizing && r.sizing.ok ? r.sizing.stop : r.levels ? r.levels.stop : null;
+    const l = r.levels;
+    const why = r.evidence.filter((e) => e.role === "weighs" && (e.stance === "for" || e.stance === "against"))
+      .map((e) => `<span class="${e.stance}">${e.stance === "for" ? "▲" : "▼"} ${escapeHtml(e.source)}: ${escapeHtml(e.reading)}</span>`).join("<br />");
+    return `<tr data-symbol="${escapeHtml(r.profileSymbol || r.symbol)}" title="${escapeHtml(r.decision.reason)}">
+      <td><div class="sym">${escapeHtml(code)} ${halalBadge(r.halal)}</div><div class="muted small">${escapeHtml(r.name)}</div></td>
+      <td><span class="verdict ready">${escapeHtml(r.decision.label)}</span>${r.position ? '<div class="muted small">you hold it</div>' : ""}</td>
+      <td class="num">${fmt(r.last)}<div class="small ${r.changePct >= 0 ? "up" : "down"}">${r.changePct >= 0 ? "+" : ""}${r.changePct}%</div></td>
+      <td class="num">${shares ? Number(shares).toLocaleString() : "—"}</td>
+      <td class="num">${fmt(stop)}</td>
+      <td class="num">${l ? `${fmt(l.target)}<div class="muted small">${l.rr} : 1</div>` : "—"}</td>
+      <td class="why">${why || '<span class="muted">Checklist only</span>'}</td>
+    </tr>`;
+  }
+
+  async function loadBuys(refresh = false) {
+    const n = ++buyAsked, list = $("buyList").value, interval = $("interval").value;
+    try { localStorage.setItem("decide", JSON.stringify({ list })); } catch (_) {}
+    $("buyRefresh").disabled = true;
+    $("buys").hidden = true;
+    $("buyCount").hidden = true;
+    $("buyMeta").textContent = "";
+    setBuyStatus("Checking every stock in the list with every analysis… about half a minute when the prices aren't loaded yet.");
+    try {
+      const res = await fetch(`/api/final/buys?${new URLSearchParams({ universe: list, interval, refresh })}`);
+      const b = await res.json();
+      if (n !== buyAsked) return;
+      if (!res.ok) throw new Error(typeof b.detail === "string" ? b.detail : `Request failed (${res.status})`);
+      const others = Object.entries(b.counts).filter(([k]) => !["strong-buy", "buy", "add"].includes(k))
+        .sort((x, y) => y[1] - x[1]).map(([k, v]) => `${v} ${COUNT_LABEL[k] || k}`);
+      const mood = b.mood ? ` · market mood: ${{ strong: "strong", weak: "weak", neutral: "mixed", unknown: "unknown" }[b.mood.key]}` : "";
+      $("buyMeta").textContent = `${b.results.length} to buy of ${b.checked} checked${others.length ? ` · ${others.join(" · ")}` : ""}${mood}`
+        + ` · as of ${new Date(b.asOf * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        + (b.skipped.length ? ` · ${b.skipped.length} without data` : "");
+      $("buyCount").textContent = b.results.length;
+      $("buyCount").hidden = false;
+      $("buys").querySelector("tbody").innerHTML = b.results.map(buyRow).join("");
+      $("buys").hidden = !b.results.length;
+      setBuyStatus(b.results.length ? "" : "Nothing in this list is a buy right now. That's an answer too: most of the time, waiting is the call.");
+    } catch (err) {
+      if (n === buyAsked) setBuyStatus(escapeHtml(err.message), true);
+    } finally {
+      if (n === buyAsked) $("buyRefresh").disabled = false;
+    }
+  }
+
+  async function loadLists() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem("decide") || "{}").list; } catch (_) {}
+    try {
+      const r = await fetch("/api/universes");
+      if (r.ok) {
+        const u = await r.json();
+        $("buyList").innerHTML = '<option value="profile">My profile</option>' + Object.entries(u)
+          .map(([k, v]) => `<option value="${escapeHtml(k)}">${escapeHtml(v.label)} (${v.count})</option>`).join("");
+      }
+    } catch (_) {}
+    const has = (v) => [...$("buyList").options].some((o) => o.value === v);
+    $("buyList").value = has(saved) ? saved : has("egx_top") ? "egx_top" : $("buyList").options[0].value;
+    loadBuys();
+  }
+
+  $("buyList").addEventListener("change", () => loadBuys());
+  $("buyRefresh").addEventListener("click", () => loadBuys(true));
+  $("buys").querySelector("tbody").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-symbol]");
+    if (!tr) return;
+    $("ticker").value = tr.dataset.symbol;
+    decide().then(() => $("result").scrollIntoView({ behavior: "smooth", block: "start" }));
+  });
+
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); decide(); });
-  $("interval").addEventListener("change", () => { if ($("ticker").value.trim()) decide(); });
+  $("interval").addEventListener("change", () => { if ($("ticker").value.trim()) decide(); loadBuys(); });
   $("chips").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-symbol]");
     if (b) { $("ticker").value = b.dataset.symbol; decide(); }
@@ -128,6 +215,7 @@
   });
 
   loadMine();
+  loadLists();
   const q = new URLSearchParams(location.search); // deep link: /decide?symbol=COMI.CA
   if (q.get("interval")) $("interval").value = q.get("interval") === "1wk" ? "1wk" : "1d";
   if (q.get("symbol")) { $("ticker").value = q.get("symbol"); decide(); }

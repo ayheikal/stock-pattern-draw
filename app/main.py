@@ -9,6 +9,7 @@ import os
 import secrets
 from urllib.parse import urlencode
 
+from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -494,6 +495,34 @@ def api_final(symbol: str = Query(..., min_length=1, max_length=32), interval: s
         return final.final_decision(symbol, interval, index_card=lambda: _index_card("EGX30", "EGX 30"))
     except (SymbolNotFound, InsufficientHistory):
         raise HTTPException(404, f"No data for '{symbol}'.")
+
+
+_buys_cache: TTLCache = TTLCache(maxsize=16, ttl=15 * 60)  # a list takes ~30 s to build, so the page can show it at once
+
+
+@app.get("/api/final/buys")
+def api_final_buys(universe: str = Query("egx_top"), interval: str = Query("1d"), refresh: bool = Query(False)):
+    """Every stock in a watchlist (or `profile`: my own) whose final call is a buy, strongest first.
+    Kept for 15 minutes; refresh=true builds it again."""
+    import time
+    if interval not in ("1d", "1wk"):
+        raise HTTPException(400, "interval must be 1d or 1wk")
+    key = (universe, interval)
+    out = None if refresh else _buys_cache.get(key)
+    if out is None:
+        if universe == "profile":
+            syms = [e.symbol for e in profile.load().entries]
+        elif get_universe(universe):
+            syms = get_universe(universe)["symbols"]
+        else:
+            raise HTTPException(400, f"unknown universe '{universe}'")
+        out = final.buy_list(syms[:MAX_SYMBOLS], interval, index_card=lambda: _index_card("EGX30", "EGX 30"))
+        out["asOf"] = int(time.time())
+        _buys_cache[key] = out
+    sh = profile.load().shariah
+    for r in out["results"]:
+        r["halal"] = shariah.status(sh, r["symbol"])
+    return out
 
 
 @app.get("/api/alerts/status")

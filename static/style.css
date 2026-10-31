@@ -859,6 +859,17 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .checks-box summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 600; }
 .checks-box .checklist { margin-top: 8px; }
 .rules { line-height: 1.6; margin-top: 16px; }
+.buys { margin-top: 18px; }
+#result:not([hidden]) + .buys { margin-top: 24px; }
+.buys-head { display: flex; align-items: flex-end; gap: 10px 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.buys-head h2 { font-size: 18px; margin: 0 auto 2px 0; display: flex; align-items: center; gap: 8px; }
+.buys-head label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.buys-head select { font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; max-width: 260px; }
+.buys-head button { font: inherit; font-weight: 600; border: 1px solid transparent; background: var(--btn); color: #fff; border-radius: var(--radius-sm); padding: 7px 16px; cursor: pointer; }
+.buys-head button:disabled { opacity: .6; cursor: wait; }
+#buyMeta { margin-bottom: 8px; }
+#buys .why { font-size: 12px; line-height: 1.5; }
+#buys .why .for { color: var(--bull); } #buys .why .against { color: var(--bear); }
 @media (max-width: 640px) {
   .call-verdict { text-align: left; }
   /* each input as a small block: name and effect, then what it says, then why */
