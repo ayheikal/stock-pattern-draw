@@ -19,7 +19,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/">📐 Market Lens</a>
-    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/value" class="current">Value</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/value" class="current">Value</a><a href="/decide">Decide</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
     <div class="search"><button id="refresh" type="button">Refresh</button></div>
     <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
   </header>
@@ -32,6 +32,9 @@
     </div>
 
     <form id="filters" class="settings-bar scan-bar" autocomplete="off">
+      <label class="grow" title="Look up any EGX stock's fair value, even one that isn't cheap or is hidden by the filters">Ticker
+        <input id="ticker" list="tickers" placeholder="Pick or type, e.g. COMI" spellcheck="false" /></label>
+      <datalist id="tickers"></datalist>
       <label title="How far under its fair value the price must be. A bigger margin leaves more room for the estimate to be wrong">Margin of safety
         <select id="margin">
           <option value="10">10%+ below</option>
@@ -57,6 +60,13 @@
         <select id="sector"><option value="">All sectors</option></select></label>
       <label class="check" title="Only stocks on the EGX 33 Shariah list in My profile, or that you tagged halal"><input id="halalOnly" type="checkbox" /> Halal only</label>
     </form>
+
+    <section id="pick" class="pick" hidden>
+      <div class="pick-head"><h2>Looked up</h2><span id="pickText" class="muted small"></span>
+        <button id="pickClear" type="button" class="icon-btn" title="Clear the ticker" aria-label="Clear the ticker">✕</button></div>
+      <div id="pickStatus" class="status inline" hidden></div>
+      <div class="table-wrap"><table id="picked" class="data" hidden><thead></thead><tbody></tbody></table></div>
+    </section>
 
     <div id="status" class="status inline">Loading company financials…</div>
     <div id="summary" class="tiles" hidden></div>

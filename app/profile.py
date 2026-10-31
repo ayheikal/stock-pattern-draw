@@ -17,7 +17,7 @@ import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
 from . import backtest, backup, decision, shariah
-from .data import fetch_actions, fetch_ohlcv
+from .data import TV_ALIASES, fetch_actions, fetch_ohlcv
 from .screener import _scan_one
 from .sizing import position_risk, size_position
 
@@ -329,15 +329,63 @@ def light_book(prof: Profile, market: list[dict]) -> dict:
     return _book(positions, prof.settings)
 
 
+def _same_stock(a: str, b: str) -> bool:
+    """COMI, COMI.CA and EGX:COMI are one stock."""
+    ka, kb = shariah.key(a), shariah.key(b)
+    return ka == kb or ka + ".CA" == kb or ka == kb + ".CA"
+
+
 def upsert(entry: Entry) -> Profile:
     with _lock:
         prof = load()
-        old = next((e for e in prof.entries if e.symbol == entry.symbol), None)
-        if old and not entry.trades:
-            entry.trades = old.trades
-        prof.entries = [e for e in prof.entries if e.symbol != entry.symbol] + [entry]
+        old = next((e for e in prof.entries if _same_stock(e.symbol, entry.symbol)), None)
+        if old:
+            entry.symbol = max(old.symbol, entry.symbol, key=lambda s: s.endswith(".CA"))  # keep the COMI.CA spelling
+            if not entry.trades:
+                entry.trades = old.trades
+        prof.entries = [e for e in prof.entries if e is not old] + [entry]
         save(prof)
     return prof
+
+
+def _merge(a: Entry, b: Entry) -> Entry:
+    """Two entries for the same stock as one: the fuller one wins, the other fills its blanks, trades come from both."""
+    fields = Entry.model_fields
+    blank = lambda e, k: getattr(e, k) == fields[k].default
+    keep, other = sorted((a, b), key=lambda e: sum(not blank(e, k) for k in fields), reverse=True)
+    out = keep.model_copy(update={k: getattr(other, k) for k in fields if blank(keep, k) and not blank(other, k)})
+    out.trades = sorted(keep.trades + [t for t in other.trades if t not in keep.trades], key=lambda t: t.date)
+    return out
+
+
+def tidied(entries: list[Entry], resolved: dict[str, str]) -> list[Entry] | None:
+    """Entries with bare EGX codes saved as COMI.CA and any stock followed twice folded into one; None when nothing changes.
+
+    `resolved` maps each entry's symbol to what it loaded as. A bare COMI asks Yahoo first on every load, which fails
+    (and logs an error) for EGX stocks, and it isn't recognised as the COMI.CA the chart page adds.
+    """
+    out: dict[str, Entry] = {}
+    for e in entries:
+        s = e.symbol
+        if s.isalnum() and s not in TV_ALIASES and resolved.get(s) == f"EGX:{s}":
+            e = e.model_copy(update={"symbol": f"{s}.CA"})
+        k = shariah.key(e.symbol)
+        out[k] = _merge(out[k], e).model_copy(update={"symbol": k}) if k in out else e
+    if [e.symbol for e in out.values()] == [e.symbol for e in entries]:
+        return None
+    return list(out.values())
+
+
+def tidy_symbols(resolved: dict[str, str]) -> bool:
+    """Save the tidied entries (see `tidied`); True when the profile changed."""
+    with _lock:
+        prof = load()
+        entries = tidied(prof.entries, resolved)
+        if entries is None:
+            return False
+        prof.entries = entries
+        save(prof)
+    return True
 
 
 def add_trade(symbol: str, trade: Trade) -> Profile | None:
@@ -967,6 +1015,9 @@ def live_profile(interval: str, period: str) -> dict:
     prof = load()
     with ThreadPoolExecutor(max_workers=8) as pool:
         rows = list(pool.map(lambda e: _scan_one(e.symbol, interval, period), prof.entries))
+        if tidy_symbols({e.symbol: r.get("symbol") for e, r in zip(prof.entries, rows)}):
+            prof = load()
+            rows = list(pool.map(lambda e: _scan_one(e.symbol, interval, period), prof.entries))
         acts = list(pool.map(_actions_for, prof.entries, rows))
     need_fx = any(r.get("currency") == "EGP" and (e.position == "long" or e.trades) for e, r in zip(prof.entries, rows))
     rates = usd_rates() if need_fx else None

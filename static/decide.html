@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Final Decision</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Lens" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Market Lens</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/value">Value</a><a href="/decide" class="current">Decide</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <div class="search"></div>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener">
+    <div class="screener-head">
+      <h1 class="wrap">Final decision <span class="muted small">every analysis in the app, combined into one call</span></h1>
+    </div>
+
+    <form id="ask" class="settings-bar scan-bar" autocomplete="off">
+      <label class="grow">Ticker
+        <input id="ticker" list="mine" placeholder="Stock or index, e.g. COMI" spellcheck="false" required /></label>
+      <datalist id="mine"></datalist>
+      <label>Bars
+        <select id="interval">
+          <option value="1d" selected>Daily</option>
+          <option value="1wk">Weekly</option>
+        </select></label>
+      <button id="go" type="submit">Decide</button>
+      <div id="chips" class="chips" hidden></div>
+    </form>
+
+    <div id="status" class="status inline" hidden></div>
+
+    <section id="result" hidden>
+      <div id="call" class="call-box"></div>
+      <div class="table-wrap">
+        <table id="evidence" class="data">
+          <thead>
+            <tr><th>Input</th><th>Says</th><th>Effect</th><th>Why</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <details id="checksBox" class="checks-box"><summary>All buy checklist checks</summary><ul id="checks" class="checklist"></ul></details>
+    </section>
+
+    <p class="muted small rules">
+      <b>How the call is made.</b> Inputs that <b>decide</b>: your own plan in My profile (for a stock you hold, its stop,
+      target, view and size rules come first) and the buy checklist (the gate for any buy). Inputs that <b>weigh</b>:
+      the rating (fundamentals × trend), fair value against peers (EGX only) and the market mood (EGX 30's trend and how
+      many EGX stocks are above their 200-day average). <b>Context</b> only: the chart outlook, since the Track record
+      shows it has no reliable edge, and the halal tag (but your own <i>not halal</i> tag blocks a buy).<br />
+      <b>Not held:</b> checklist Avoid, rating Sell or your not-halal tag → Don't buy. Checklist Wait or Not enough data →
+      the same. Checklist Ready → each weighing input for counts +1, against −1: 2 or more is a Strong buy, 0 or 1 a Buy,
+      below 0 Wait.<br />
+      <b>Held:</b> your plan says sell (stop or target hit, bearish view, too big) → do that. Rating Sell → Sell. Two or more
+      against (checklist, rating, fair value, market, halal) → Reduce. Your plan says Add more and nothing is against →
+      Add more. Otherwise Hold.<br />
+      Fundamentals can't be backtested (there's no history of past figures), so this is discipline, not a forecast. Not advice.
+    </p>
+  </main>
+
+  <script src="/static/decide.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>

@@ -39,6 +39,35 @@ def test_profile_crud(client):
     assert client.delete("/api/profile/entries/EGX30").status_code == 404
 
 
+def test_adding_the_same_stock_twice_updates_one_entry(client):
+    client.put("/api/profile/entries", json={"symbol": "ADIB", "target": 55})
+    client.put("/api/profile/entries", json={"symbol": "ADIB.CA", "target": 60})
+    client.put("/api/profile/entries", json={"symbol": "COMI.CA"})
+    client.put("/api/profile/entries", json={"symbol": "COMI", "stop": 80})
+    body = client.get("/api/profile?live=false").json()
+    assert [(e["symbol"], e["target"], e["stop"]) for e in body["entries"]] == [("ADIB.CA", 60, None), ("COMI.CA", None, 80)]
+
+
+def test_tidied_saves_bare_egx_codes_as_ca_and_merges_duplicates():
+    t = profile.Trade(date="2026-10-05", side="buy", qty=184, price=42.6)
+    entries = [profile.Entry(symbol="ADIB", qty=746, avgCost=43, target=55, trades=[t]),
+               profile.Entry(symbol="AAPL"), profile.Entry(symbol="EGX30"),
+               profile.Entry(symbol="ADIB.CA", note="from the chart", target=70)]
+    resolved = {"ADIB": "EGX:ADIB", "AAPL": "AAPL", "EGX30": "EGX:EGX30", "ADIB.CA": "EGX:ADIB"}
+    adib, aapl, egx30 = profile.tidied(entries, resolved)
+    assert (adib.symbol, adib.qty, adib.target, adib.note, adib.trades) == ("ADIB.CA", 746, 55, "from the chart", [t])
+    assert (aapl.symbol, egx30.symbol) == ("AAPL", "EGX30")  # not an EGX stock / an index alias
+    assert profile.tidied([profile.Entry(symbol="AAPL"), profile.Entry(symbol="COMI.CA")],
+                          {"AAPL": "AAPL", "COMI.CA": "EGX:COMI"}) is None
+
+
+def test_live_profile_tidies_bare_egx_codes(client, monkeypatch):
+    monkeypatch.setattr(profile, "_scan_one", lambda s, i, p: live_row("EGX:" + s.removesuffix(".CA"), 110.0, 1.5))
+    client.put("/api/profile/entries", json={"symbol": "TMGH", "position": "long", "qty": 10, "avgCost": 100})
+    assert [e["symbol"] for e in client.get("/api/profile").json()["entries"]] == ["TMGH.CA"]
+    assert [e.symbol for e in profile.load().entries] == ["TMGH.CA"]
+
+
 def test_profile_rejects_bad_input(client):
     assert client.put("/api/profile/entries", json={"symbol": "X", "position": "maybe"}).status_code == 422
     assert client.put("/api/profile/entries", json={"symbol": "X", "avgCost": -1}).status_code == 422

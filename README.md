@@ -102,6 +102,27 @@ checklist. This is relative value: an overpriced sector's cheapest stock can sti
 one-offs. Only stocks with at least two reported multiples are valued, which is often a minority of the EGX.
 `GET /api/value?margin=20` returns the list.
 
+## Final decision
+
+`/decide` combines every analysis into one call per stock ([app/final.py](app/final.py)): **Strong buy**, **Buy**,
+**Wait**, **Don't buy** or **Not enough data** for a stock you don't hold; **Add more**, **Hold**, **Reduce** or **Sell**
+(or your plan's own *Cut loss*, *Take profit*, *Trim*…) for one you do. Each input is shown with what it says, whether it
+counts for or against, and its role:
+
+| Role | Inputs |
+|---|---|
+| Decides | Your plan in My profile (a held stock's stop, target, view and size rules come first), the buy checklist |
+| Weighs | The rating, fair value against peers (EGX only), market mood (EGX 30 trend + share of stocks above their 200-day) |
+| Context | The chart outlook and its track record on the stock (no reliable edge, so no vote), the halal tag |
+
+- **Not held:** checklist Avoid, rating Sell or your own *not halal* tag → Don't buy. Checklist Wait / Not enough data → the
+  same. Checklist Ready → each weighing input for counts +1, against −1: 2 or more is a Strong buy, 0–1 a Buy, below 0 Wait.
+- **Held:** your plan says sell → do that. Rating Sell → Sell. Two or more against (checklist, rating, fair value, market,
+  halal) → Reduce. Your plan says Add more and nothing is against → Add more. Otherwise Hold.
+
+Pick a stock from the My profile chips or type any ticker; `/decide?symbol=COMI.CA` links straight to one.
+`GET /api/final?symbol=COMI.CA&interval=1d` returns the call and every input. Like the checklist, it can't be backtested.
+
 ## Run
 
 ```powershell
@@ -291,6 +312,7 @@ app/
     levels.py          S/R clustering, trendlines
     candles.py         candlestick rules (only in trend context)
     __init__.py        analyze(): runs all detectors + overlap suppression
+  final.py             final decision: combines my plan, checklist, rating, fair value and market mood
   main.py              FastAPI: GET /api/analyze?symbol=&interval=&period=
 static/                Frontend (TradingView Lightweight Charts)
 ```

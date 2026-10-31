@@ -37,6 +37,12 @@ VERDICTS = {
     "trap": ("Cheap for a reason", "bearish", "Cheap, but the business is weak or losing money, so the low price may be deserved."),
 }
 VERDICT_RANK = {"buy": 0, "watch": 1, "unknown": 2, "trap": 3}
+# Only for a stock looked up by ticker: it needn't be cheap at all
+NOT_CHEAP = {
+    "short": ("Not cheap enough", "neutral", "Under its fair value, but by less than your margin of safety, so there's little room "
+                                             "for the estimate to be wrong."),
+    "dear": ("Above fair value", "bearish", "Priced above what its peers' multiples say it's worth."),
+}
 
 
 def peer_medians(funds: list[dict]) -> tuple[dict, dict]:
@@ -127,3 +133,24 @@ def screen(funds: list[dict], inflation: float, margin: float = MARGIN_PCT) -> d
     return {"marginPct": margin, "inflationPct": inflation, "total": len(funds), "valued": len(valued),
             "minPeers": MIN_PEERS, "counts": {k: sum(1 for v in cheap if v["verdict"] == k) for k in VERDICTS},
             "results": cheap}
+
+
+def lookup(funds: list[dict], symbol: str, inflation: float, margin: float = MARGIN_PCT) -> dict:
+    """One stock's fair value whatever its discount: {"symbol", "stock": the row or None, "reason": why there's none}."""
+    s = symbol.strip().upper().removeprefix("EGX:")
+    code = s if s.endswith(".CA") else f"{s}.CA"
+    f = next((f for f in funds if f["symbol"] == code), None)
+    if f is None:
+        return {"symbol": code, "stock": None, "reason": f"{s.removesuffix('.CA')} isn't an EGX-listed stock. Pick one from the list."}
+    by_industry, by_sector = peer_medians(funds)
+    v = value(f, by_industry, by_sector, inflation)
+    if v is None:
+        n = len(estimates(f, by_industry, by_sector))
+        return {"symbol": code, "stock": None,
+                "reason": f"{f.get('name') or code}: only {n} of P/E, P/B and EV/EBITDA can be compared with its peers, and a "
+                          f"fair value needs at least {MIN_METHODS}. TradingView often leaves EGX figures blank."}
+    if v["discountPct"] < margin:
+        key = "short" if v["discountPct"] >= 0 else "dear"
+        label, tone, text = NOT_CHEAP[key]
+        v |= {"verdict": key, "label": label, "tone": tone, "text": text, "rank": len(VERDICT_RANK) + (key == "dear")}
+    return {"symbol": code, "stock": v, "reason": None}

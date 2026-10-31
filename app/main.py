@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
-from . import access, alerts, backtest, decision, profile, shariah, valuation
+from . import access, alerts, backtest, decision, final, profile, shariah, valuation
 from .outlook import build_outlook
 from .patterns import analyze
 from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
@@ -465,7 +465,35 @@ def api_value(margin: float = Query(valuation.MARGIN_PCT, ge=0, le=90, descripti
     out = {"asOf": funds["asOf"]} | valuation.screen(funds["stocks"], prof.inflationPct, margin)
     for r in out["results"]:
         r["halal"] = shariah.status(prof.shariah, r["symbol"])
+    out["tickers"] = sorted([s["symbol"], s.get("name")] for s in funds["stocks"])  # for the ticker picker
     return out
+
+
+@app.get("/api/value/stock")
+def api_value_stock(symbol: str = Query(..., min_length=1, max_length=32),
+                    margin: float = Query(valuation.MARGIN_PCT, ge=0, le=90)):
+    """One EGX stock's fair value, cheap or not, or why it can't be valued."""
+    from .egx import fetch_fundamentals
+    try:
+        funds = fetch_fundamentals()
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't load EGX company financials: {str(e)[:120]}")
+    prof = profile.load()
+    out = valuation.lookup(funds["stocks"], symbol, prof.inflationPct, margin)
+    if out["stock"]:
+        out["stock"]["halal"] = shariah.status(prof.shariah, out["symbol"])
+    return out
+
+
+@app.get("/api/final")
+def api_final(symbol: str = Query(..., min_length=1, max_length=32), interval: str = Query("1d")):
+    """One Buy / Hold / Sell call for a symbol, combining my plan, the checklist, rating, fair value and market mood."""
+    if interval not in ("1d", "1wk"):
+        raise HTTPException(400, "interval must be 1d or 1wk")
+    try:
+        return final.final_decision(symbol, interval, index_card=lambda: _index_card("EGX30", "EGX 30"))
+    except (SymbolNotFound, InsufficientHistory):
+        raise HTTPException(404, f"No data for '{symbol}'.")
 
 
 @app.get("/api/alerts/status")
@@ -545,6 +573,11 @@ def sectors_page():
 @app.get("/value")
 def value_page():
     return FileResponse(STATIC / "value.html")
+
+
+@app.get("/decide")
+def decide_page():
+    return FileResponse(STATIC / "decide.html")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

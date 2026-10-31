@@ -68,3 +68,27 @@ def test_endpoint_lists_cheap_stocks_with_halal_tags(monkeypatch):
     b = TestClient(app).get("/api/value?margin=20").json()
     assert [r["symbol"] for r in b["results"]] == ["BUY.CA"] and "halal" in b["results"][0]
     assert TestClient(app).get("/api/value?margin=95").status_code == 422
+    assert ["BUY.CA", "Buy Co"] in b["tickers"] and len(b["tickers"]) == 4
+
+
+def test_lookup_values_any_stock_cheap_or_not():
+    funds = peers() + [SOUND | {"symbol": "BUY.CA", "pe": 6.0, "pb": 1.2},
+                       SOUND | {"symbol": "NEAR.CA", "pe": 9.0, "pb": 1.8},
+                       SOUND | {"symbol": "DEAR.CA", "pe": 15.0, "pb": 3.0},
+                       SOUND | {"symbol": "LONE.CA", "name": "Lone Co", "pb": None, "evEbitda": None}]
+    look = lambda s: valuation.lookup(funds, s, INFLATION, margin=20)
+    assert [look(s)["stock"]["verdict"] for s in ("BUY", "egx:buy", "BUY.CA")] == ["buy"] * 3
+    near, dear = look("NEAR")["stock"], look("DEAR")["stock"]
+    assert (near["verdict"], near["label"]) == ("short", "Not cheap enough") and 0 <= near["discountPct"] < 20
+    assert (dear["verdict"], dear["tone"]) == ("dear", "bearish") and dear["discountPct"] < 0
+    assert look("LONE")["stock"] is None and "only 1 of" in look("LONE")["reason"]
+    assert look("AAPL") == {"symbol": "AAPL.CA", "stock": None,
+                            "reason": "AAPL isn't an EGX-listed stock. Pick one from the list."}
+
+
+def test_lookup_endpoint(monkeypatch):
+    from app.main import app
+    funds = peers() + [SOUND | {"symbol": "DEAR.CA", "name": "Dear Co", "pe": 15.0, "pb": 3.0}]
+    monkeypatch.setattr(egx, "fetch_fundamentals", lambda: {"asOf": 1, "stocks": funds})
+    b = TestClient(app).get("/api/value/stock?symbol=dear&margin=20").json()
+    assert b["stock"]["symbol"] == "DEAR.CA" and b["stock"]["verdict"] == "dear" and "halal" in b["stock"]
