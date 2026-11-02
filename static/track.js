@@ -144,6 +144,14 @@
     return sig > 0 ? "useful" : sig < 0 ? "misleading" : Math.abs(p.asExpected - p.baseRate) >= MIN_EDGE ? "unclear" : "none";
   }
 
+  // Success: target reached before the stop. Candles have no target; results saved before this have no trades.
+  function successCells(p) {
+    if (!p.trades) return `<td class="num muted">—</td><td class="num muted">—</td>`;
+    const tip = `${p.trades.toLocaleString()} trades · average ${p.avgR >= 0 ? "+" : ""}${p.avgR.toFixed(2)} R`;
+    return `<td class="num" title="${tip}"><b>${share(p.targetFirst)}</b> <span class="muted small">of ${p.trades.toLocaleString()}</span></td>
+      <td class="num" title="${tip}">${share(p.stopFirst)}</td>`;
+  }
+
   // The By pattern and By indicator signal tables: key is "patterns" or "signals", id the matching element prefix.
   function renderPatterns(r, key = "patterns", id = "pattern", none = "No completed patterns in this period.") {
     const list = r[key];
@@ -163,8 +171,9 @@
         <td class="num">${share(p.baseRate)}</td>
         <td class="num ${p.v === "useful" ? "up" : p.v === "misleading" ? "down" : p.v === "unclear" ? "unproven" : ""}">${edge(p) == null ? "—" : `${edge(p) > 0 ? "+" : ""}${edge(p).toFixed(1)} pts`}</td>
         <td class="num ${cls(p.avgRet)}">${pct(p.avgRet)}</td>
+        ${key === "patterns" ? successCells(p) : ""}
         <td>${p.v ? `<span class="verdict-pill ${p.v}">${VERDICTS[p.v].label}</span>` : '<span class="muted small">points neither way</span>'}</td>
-      </tr>`).join("") : `<tr><td colspan="7" class="muted">${none}</td></tr>`;
+      </tr>`).join("") : `<tr><td colspan="${key === "patterns" ? 9 : 7}" class="muted">${none}</td></tr>`;
   }
 
   function renderSimple(rows) {

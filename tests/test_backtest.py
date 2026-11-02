@@ -101,6 +101,35 @@ def test_summarize_patterns():
     assert backtest.summarize_patterns([{"fwdRet": 1.0}]) == []  # samples saved before patterns were tracked
 
 
+def test_pattern_trades_aim_at_the_target_with_a_stop_past_the_last_swing():
+    w = bars([(101, 99, 100)] * 30 + [(104, 98, 103), (106, 102, 105)])  # last close 105, low since bar 30 is 98
+    P = lambda **k: Pattern(**({"name": "Bull Flag", "category": "continuation", "direction": "bullish", "start": 20,
+                                "end": 31, "confidence": 0.7, "points": [(25, 99.0), (30, 98.0)], "target": 120.0,
+                                "confirmed": True} | k))
+    (t,) = backtest.pattern_trades([P()], w, 5)
+    a = float(backtest.compute_atr(w)[-1])
+    assert (t["side"], t["entry"], t["target"]) == ("long", 105.0, 120.0)
+    assert t["stop"] == pytest.approx(98 - 0.25 * a) and t["rr"] == pytest.approx(15 / (105 - t["stop"]))
+    # no trade: forming, no target, target already passed, too old, or a candle
+    for skip in (P(confirmed=False), P(target=None), P(target=104.0), P(end=20), P(category="candle")):
+        assert backtest.pattern_trades([skip], w, 5) == []
+    (s,) = backtest.pattern_trades([P(name="Double Top", direction="bearish", target=90.0, category="reversal")], w, 5)
+    assert s["side"] == "short" and s["stop"] == pytest.approx(106 + 0.25 * a)
+
+
+def test_success_rate_counts_target_before_stop():
+    t = lambda outcome, R: {"name": "Double Top", "direction": "bearish", "outcome": outcome, "R": R}
+    samples = [{"fwdRet": -1.0, "patterns": [["Double Top", "bearish"]], "patternTrades": [t("target", 2.0)]},
+               {"fwdRet": 1.0, "patterns": [["Double Top", "bearish"]], "patternTrades": [t("stop", -1.0)]},
+               {"fwdRet": -2.0, "patterns": [["Double Top", "bearish"]], "patternTrades": [t("target", 1.5)]},
+               {"fwdRet": 0.5, "patterns": [["Double Top", "bearish"]], "patternTrades": [t("timeout", 0.2)]}]
+    (p,) = backtest.summarize_patterns(samples)
+    assert (p["trades"], p["targetFirst"], p["stopFirst"]) == (4, 50.0, 25.0)
+    assert p["avgR"] == pytest.approx((2 - 1 + 1.5 + 0.2) / 4, abs=1e-3)
+    (s,) = backtest.summarize_patterns([{"fwdRet": 1.0, "signals": [["RSI back above 30", "bullish"]]}], "signals")
+    assert s["trades"] == 0 and s["targetFirst"] is None
+
+
 def test_pattern_verdict():
     v = lambda n, said, base=50.0: backtest.pattern_verdict({"n": n, "asExpected": said, "baseRate": base})
     assert v(400, 60.0) == "useful" and v(400, 40.0) == "misleading"
@@ -123,7 +152,8 @@ def test_pattern_track_uses_the_largest_run_of_the_same_market(tmp_path, monkeyp
 
     t = backtest.pattern_track("COMI.CA", "1d")
     assert (t["universe"], t["label"], t["symbols"]) == ("egx", "EGX", 3)
-    assert t["stats"]["Shooting Star|bearish"] == {"n": 400, "asExpected": 40.0, "baseRate": 50.0, "verdict": "misleading"}
+    assert t["stats"]["Shooting Star|bearish"] == {"n": 400, "asExpected": 40.0, "baseRate": 50.0, "verdict": "misleading",
+                                                   "trades": 0, "targetFirst": None, "stopFirst": None, "avgR": None}
     assert backtest.pattern_track("AAPL", "1d")["stats"].keys() == {"Double Top|bearish"}
     assert backtest.pattern_track("COMI.CA", "1wk") is None
 

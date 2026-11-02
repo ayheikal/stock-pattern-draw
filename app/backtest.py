@@ -23,6 +23,7 @@ from .data import InsufficientHistory, SymbolNotFound, fetch_ohlcv
 from .indicators import recent_signals
 from .outlook import HORIZONS, build_outlook
 from .patterns import Pattern, analyze
+from .pivots import atr as compute_atr
 from .screener import get_universe
 
 WINDOW = 250
@@ -30,6 +31,8 @@ HISTORY = {"1d": "10y", "1wk": "max"}
 BUCKETS = ["Bullish", "Mildly bullish", "Neutral", "Mildly bearish", "Bearish"]
 DIRECTION = {"Bullish": 1, "Mildly bullish": 1, "Neutral": 0, "Mildly bearish": -1, "Bearish": -1}
 MIN_RELIABLE = 30
+TRADE_HORIZON = 12  # a pattern's target gets this many outlook horizons to be reached: ~3 months daily, ~1 year weekly
+TRADE_WINDOW = {"1d": "about 3 months", "1wk": "about a year"}  # TRADE_HORIZON in words
 # Look-back periods reported from one run: key -> months (None = everything).
 RANGES = {"6mo": 6, "1y": 12, "2y": 24, "5y": 60, "all": None}
 PARALLEL = True  # tests switch this off so monkeypatched data reaches the replay
@@ -77,6 +80,31 @@ def completed(patterns: list[Pattern], n: int, bars: int) -> list[list[str]]:
     return out
 
 
+def pattern_trades(patterns: list[Pattern], w: pd.DataFrame, bars: int) -> list[dict]:
+    """A trade for each pattern with a target that completed within the last `bars`: in at the last close,
+    out at the pattern's target, stopped just beyond its last swing (where the pattern is proven wrong).
+    Used to score whether the target or the stop came first."""
+    n, entry = len(w), float(w["Close"].iloc[-1])
+    a = float(compute_atr(w)[-1])
+    out, seen = [], set()
+    for p in patterns:
+        if p.category in ("trend", "candle") or not p.confirmed or p.target is None or p.end < n - bars:
+            continue
+        long = p.direction == "bullish"
+        if p.direction == "neutral" or (p.name, p.direction) in seen or (p.target <= entry if long else p.target >= entry):
+            continue  # pointing nowhere, counted already, or the target was reached before you'd have seen it
+        i0 = int(p.points[-1][0]) if p.points else p.start
+        swing = float(w["Low"].iloc[i0:].min()) if long else float(w["High"].iloc[i0:].max())
+        # just beyond the swing, and at least half an ATR away so a tick of noise isn't a failure
+        stop = min(swing - 0.25 * a, entry - 0.5 * a) if long else max(swing + 0.25 * a, entry + 0.5 * a)
+        if stop <= 0:
+            continue
+        seen.add((p.name, p.direction))
+        out.append({"name": p.name, "direction": p.direction, "side": "long" if long else "short", "entry": entry,
+                    "target": float(p.target), "stop": stop, "rr": abs(p.target - entry) / abs(entry - stop)})
+    return out
+
+
 def sample_at(df: pd.DataFrame, i: int, interval: str) -> dict:
     """The outlook as it looked at the close of bar i, from bars i-WINDOW+1..i only."""
     w = df.iloc[max(0, i - WINDOW + 1): i + 1]
@@ -85,6 +113,7 @@ def sample_at(df: pd.DataFrame, i: int, interval: str) -> dict:
     return {"score": o["score"], "bias": o["bias"], "last": float(w["Close"].iloc[-1]),
             "plan": next((p for p in o["plans"] if not p["conditional"]), None),
             "patterns": completed(patterns, len(w), horizon_bars(interval)),
+            "trades": pattern_trades(patterns, w, horizon_bars(interval)),
             "signals": recent_signals(w, horizon_bars(interval))}
 
 
@@ -113,6 +142,11 @@ def replay(df: pd.DataFrame, interval: str, min_adtv: float = 0.0) -> list[dict]
             "R": None,
             "patterns": s["patterns"],
             "signals": s["signals"],
+            # each pattern's own trade: did its target or its stop come first (within TRADE_HORIZON horizons)?
+            # (only once the whole window has played out, so the latest ones aren't counted as neither)
+            "patternTrades": [{"name": t["name"], "direction": t["direction"], "outcome": res[0], "R": res[1]}
+                              for t in s["trades"] if i + TRADE_HORIZON * h < len(df)
+                              and (res := plan_outcome(df, i, t, TRADE_HORIZON * h))],
         }
         if s["plan"] is not None:
             res = plan_outcome(df, i, s["plan"], max_bars)
@@ -172,14 +206,23 @@ def summarize_patterns(samples: list[dict], key: str = "patterns") -> list[dict]
     rets = [s["fwdRet"] for s in samples]
     baseline, up = _mean(rets), _share(rets, lambda x: x > 0)
     groups: dict[tuple[str, str], list[float]] = {}
+    trades: dict[tuple[str, str], list[dict]] = {}
     for s in samples:
         for name, direction in s.get(key) or []:
             groups.setdefault((name, direction), []).append(s["fwdRet"])
+        for t in (s.get("patternTrades") or []) if key == "patterns" else []:
+            trades.setdefault((t["name"], t["direction"]), []).append(t)
     out = []
     for (name, direction), r in groups.items():
         d = PATTERN_SIGN[direction]
         avg = _mean(r)
+        tr = trades.get((name, direction), [])
         out.append({
+            # success: the pattern's own target reached before its stop (its last swing), within TRADE_HORIZON horizons
+            "trades": len(tr),
+            "targetFirst": _share(tr, lambda t: t["outcome"] == "target"),
+            "stopFirst": _share(tr, lambda t: t["outcome"] == "stop"),
+            "avgR": _mean([t["R"] for t in tr]),
             "name": name,
             "direction": direction,
             "n": len(r),
@@ -370,7 +413,10 @@ def pattern_track(resolved: str, interval: str) -> dict | None:
         "since": best.get("since"),
         "horizon": best["horizon"],
         "stats": {f"{p['name']}|{p['direction']}": {"n": p["n"], "asExpected": p["asExpected"], "baseRate": p["baseRate"],
-                                                     "verdict": pattern_verdict(p)} for p in best["patterns"]},
+                                                     "verdict": pattern_verdict(p), "trades": p.get("trades", 0),
+                                                     "targetFirst": p.get("targetFirst"), "stopFirst": p.get("stopFirst"),
+                                                     "avgR": p.get("avgR")} for p in best["patterns"]},
+        "tradeHorizon": TRADE_WINDOW.get(best.get("interval"), f"{TRADE_HORIZON} outlook periods"),
     }
 
 

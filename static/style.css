@@ -525,6 +525,12 @@ body.no-scroll { overflow: hidden; }
 .verdict-pill.unclear, .verdict-pill.neutral { color: var(--neutral); }
 .verdict-pill.few { color: var(--muted); }
 .track-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.success-line { margin-top: 2px; }
+.success-rate { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 8px; white-space: nowrap;
+  color: var(--muted); background: color-mix(in srgb, currentColor 13%, transparent); }
+.success-rate.good { color: var(--bull); }
+.success-rate.mid { color: var(--resistance); }
+.success-rate.bad { color: var(--bear); }
 .track-line .verdict-pill { font-size: 11px; padding: 1px 8px; }
 #simple .plain { color: var(--muted); margin-top: 4px; }
 #simple td:first-child { width: 34%; }

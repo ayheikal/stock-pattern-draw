@@ -438,8 +438,19 @@
     if (!s) return `<div class="meta track-line">No ${escapeHtml(t.label)} track record for it yet</div>`;
     const tip = `Track record: ${s.n} completed on ${t.symbols} ${t.label} symbols since ${t.since}, price change over the ${t.horizon}`;
     const said = `${p.direction === "bullish" ? "rose" : "fell"} after ${Math.round(s.asExpected)}% of ${s.n.toLocaleString()} vs ${Math.round(s.baseRate)}% of any period`;
-    return `<div class="meta track-line" title="${escapeHtml(tip)}"><span class="verdict-pill ${s.verdict}">${TRACK_LABELS[s.verdict]}</span> ${escapeHtml(t.label)}: ${said}</div>`;
+    return `<div class="meta track-line" title="${escapeHtml(tip)}"><span class="verdict-pill ${s.verdict}">${TRACK_LABELS[s.verdict]}</span> ${escapeHtml(t.label)}: ${said}</div>`
+      + successLine(s, t);
   }
+
+  // Success rate: how often this pattern's target was reached before its stop, on the market's track record.
+  function successLine(s, t) {
+    if (!s.trades) return "";
+    const tip = `Out of ${s.trades} completed ones on ${t.symbols} ${t.label} symbols: target first ${Math.round(s.targetFirst)}%, `
+      + `stop first ${Math.round(s.stopFirst)}%, neither within ${t.tradeHorizon} ${Math.max(0, Math.round(100 - s.targetFirst - s.stopFirst))}%`;
+    return `<div class="meta success-line" title="${escapeHtml(tip)}"><span class="success-rate ${successTone(s.targetFirst)}">${Math.round(s.targetFirst)}% success</span>
+      reached its target before its stop in ${s.trades.toLocaleString()} past trades · stopped out ${Math.round(s.stopFirst)}%</div>`;
+  }
+  const successTone = (r) => (r >= 50 ? "good" : r >= 35 ? "mid" : "bad");
 
   // The period asked for. A short one comes with extra history (the outlook always reads 250 bars), so the
   // chart opens on just the asked-for bars and the rest is a scroll away.
@@ -467,6 +478,7 @@
     box.innerHTML = `<span class="mp-k">Main pattern</span> <b>${escapeHtml(p.name)}</b> <span class="tag ${p.direction}">${p.direction}</span>
       <span class="muted">${status}${p.target != null ? ` · target ≈ ${fmt(p.target)}` : ""}${plan ? ` · R:R ${plan.rr.toFixed(2)}` : ""}</span>
       ${s && s.verdict ? `<span class="verdict-pill ${s.verdict}" title="${escapeHtml(`${t.label} track record: ${p.direction === "bullish" ? "rose" : "fell"} after ${Math.round(s.asExpected)}% of ${s.n} vs ${Math.round(s.baseRate)}% of any period`)}">${TRACK_LABELS[s.verdict]} on ${escapeHtml(t.label)}</span>` : ""}
+      ${s && s.trades ? `<span class="success-rate ${successTone(s.targetFirst)}" title="Reached its target before its stop in ${Math.round(s.targetFirst)}% of ${s.trades} past ${escapeHtml(t.label)} trades">${Math.round(s.targetFirst)}% success</span>` : ""}
       ${outweighed}`;
   }
 
