@@ -144,17 +144,18 @@
     return sig > 0 ? "useful" : sig < 0 ? "misleading" : Math.abs(p.asExpected - p.baseRate) >= MIN_EDGE ? "unclear" : "none";
   }
 
-  function renderPatterns(r) {
-    const list = r.patterns;
-    $("patternsMissing").hidden = !!list;
-    $("patternsWrap").hidden = !list;
+  // The By pattern and By indicator signal tables: key is "patterns" or "signals", id the matching element prefix.
+  function renderPatterns(r, key = "patterns", id = "pattern", none = "No completed patterns in this period.") {
+    const list = r[key];
+    $(`${id}sMissing`).hidden = !!list;
+    $(`${id}sWrap`).hidden = !list;
     if (!list) return;
-    $("patternNote").textContent = `price change over the ${r.horizon}`;
+    $(`${id}Note`).textContent = `price change over the ${r.horizon}`;
     const rows = list.map((p) => ({ ...p, v: patternVerdict(p) }));
     const order = (v) => (v ? VERDICTS[v].order : 5);
     rows.sort((a, b) => order(a.v) - order(b.v) || b.n - a.n);
     const edge = (p) => (p.asExpected == null || p.baseRate == null ? null : p.asExpected - p.baseRate);
-    $("patterns").querySelector("tbody").innerHTML = rows.length ? rows.map((p) => `
+    $(`${id}s`).querySelector("tbody").innerHTML = rows.length ? rows.map((p) => `
       <tr class="${p.small ? "small-n" : ""}">
         <td>${escapeHtml(p.name)} <span class="tag ${p.direction}">${p.direction}</span></td>
         <td class="num">${p.n.toLocaleString()}</td>
@@ -163,7 +164,7 @@
         <td class="num ${p.v === "useful" ? "up" : p.v === "misleading" ? "down" : p.v === "unclear" ? "unproven" : ""}">${edge(p) == null ? "—" : `${edge(p) > 0 ? "+" : ""}${edge(p).toFixed(1)} pts`}</td>
         <td class="num ${cls(p.avgRet)}">${pct(p.avgRet)}</td>
         <td>${p.v ? `<span class="verdict-pill ${p.v}">${VERDICTS[p.v].label}</span>` : '<span class="muted small">points neither way</span>'}</td>
-      </tr>`).join("") : '<tr><td colspan="7" class="muted">No completed patterns in this period.</td></tr>';
+      </tr>`).join("") : `<tr><td colspan="7" class="muted">${none}</td></tr>`;
   }
 
   function renderSimple(rows) {
@@ -216,6 +217,7 @@
         <td class="num">—</td><td class="num" title="Share of all samples that rose">${share(o.upShare)} rose</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>`;
 
     renderPatterns(r);
+    renderPatterns(r, "signals", "signal", "No indicator signals in this period.");
     const rows = symbolRows(r);
     renderSimple(rows);
     const k = state.sortKey;

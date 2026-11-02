@@ -1,4 +1,4 @@
-"""Track record of the outlook, and of each chart pattern: replay them on history and measure what happened next.
+"""Track record of the outlook, each chart pattern and each indicator signal: replay them on history and measure what happened next.
 
 At every sample bar the outlook sees only the trailing WINDOW bars up to that bar (what the
 live app shows with its 1y daily / 5y weekly view), so no future data leaks into a signal.
@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from .data import InsufficientHistory, SymbolNotFound, fetch_ohlcv
+from .indicators import recent_signals
 from .outlook import HORIZONS, build_outlook
 from .patterns import Pattern, analyze
 from .screener import get_universe
@@ -83,7 +84,8 @@ def sample_at(df: pd.DataFrame, i: int, interval: str) -> dict:
     o = build_outlook(w, patterns, levels, interval)
     return {"score": o["score"], "bias": o["bias"], "last": float(w["Close"].iloc[-1]),
             "plan": next((p for p in o["plans"] if not p["conditional"]), None),
-            "patterns": completed(patterns, len(w), horizon_bars(interval))}
+            "patterns": completed(patterns, len(w), horizon_bars(interval)),
+            "signals": recent_signals(w, horizon_bars(interval))}
 
 
 def replay(df: pd.DataFrame, interval: str, min_adtv: float = 0.0) -> list[dict]:
@@ -110,6 +112,7 @@ def replay(df: pd.DataFrame, interval: str, min_adtv: float = 0.0) -> list[dict]
             "outcome": None,
             "R": None,
             "patterns": s["patterns"],
+            "signals": s["signals"],
         }
         if s["plan"] is not None:
             res = plan_outcome(df, i, s["plan"], max_bars)
@@ -160,17 +163,17 @@ def summarize_samples(samples: list[dict], fee_pct: float = 0.0) -> dict:
 PATTERN_SIGN = {"bullish": 1, "bearish": -1, "neutral": 0}
 
 
-def summarize_patterns(samples: list[dict]) -> list[dict]:
-    """How price moved over the horizon after each pattern, most frequent first.
+def summarize_patterns(samples: list[dict], key: str = "patterns") -> list[dict]:
+    """How price moved over the horizon after each pattern (or indicator signal, key="signals"), most frequent first.
 
-    Measured from the first sample at or after the pattern completed (when you'd have seen it),
+    Measured from the first sample at or after it completed (when you'd have seen it),
     against the base rate of all samples moving that way.
     """
     rets = [s["fwdRet"] for s in samples]
     baseline, up = _mean(rets), _share(rets, lambda x: x > 0)
     groups: dict[tuple[str, str], list[float]] = {}
     for s in samples:
-        for name, direction in s.get("patterns") or []:
+        for name, direction in s.get(key) or []:
             groups.setdefault((name, direction), []).append(s["fwdRet"])
     out = []
     for (name, direction), r in groups.items():
@@ -212,6 +215,7 @@ def _period(ok: list[dict], since: str | None, fee_pct: float = 0.0) -> dict:
         "since": since or min((r["from"] for r in ok), default=None),
         "overall": summarize_samples(every, fee_pct),
         "patterns": summarize_patterns(every),
+        "signals": summarize_patterns(every, "signals"),
         "perSymbol": {
             r["resolved"]: {"query": r["symbol"], "name": r["name"], "from": r["from"], **summarize_samples(pick(r), fee_pct)}
             for r in ok

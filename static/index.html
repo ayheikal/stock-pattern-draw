@@ -69,6 +69,20 @@
     <label><input type="checkbox" data-cat="levels" checked /> <span class="dot lvl"></span>Support / Resistance</label>
     <label><input type="checkbox" data-cat="candle" checked /> <span class="dot cndl"></span>Candlesticks</label>
     <label><input type="checkbox" id="logScale" checked /> Log scale</label>
+    <details class="ind-menu" id="indMenu">
+      <summary>Indicators <span id="indCount" class="muted"></span></summary>
+      <div class="ind-list">
+        <div class="ind-group">On the price chart</div>
+        <label><input type="checkbox" data-ind="ema20" /> <span class="swatch ema20"></span>EMA 20</label>
+        <label><input type="checkbox" data-ind="sma50" checked /> <span class="swatch sma50"></span>SMA 50</label>
+        <label><input type="checkbox" data-ind="sma200" checked /> <span class="swatch sma200"></span>SMA 200</label>
+        <label><input type="checkbox" data-ind="bb" /> <span class="swatch bb"></span>Bollinger Bands (20, 2)</label>
+        <label><input type="checkbox" data-ind="volume" checked /> <span class="swatch vol"></span>Volume</label>
+        <div class="ind-group">Below the chart</div>
+        <label><input type="checkbox" data-ind="rsi" checked /> <span class="swatch rsi"></span>RSI 14</label>
+        <label><input type="checkbox" data-ind="macd" /> <span class="swatch macd"></span>MACD (12, 26, 9)</label>
+      </div>
+    </details>
     <label title="Key: only what drives the outlook. Recent: the last few months. All: every pattern found.">Show
       <select id="showMode">
         <option value="key" selected>Key patterns</option>
@@ -105,6 +119,8 @@
         <svg id="measureLayer" class="measure-layer" aria-hidden="true"></svg>
         <div id="status" class="status">Type a stock, index or asset code above: <b>AAPL</b>, <b>^GSPC</b>, <b>COMI.CA</b>, <b>EGX33</b>, <b>BTC-USD</b>.</div>
       </div>
+      <div id="rsiPane" class="sub-pane" hidden><div id="rsiLegend" class="pane-legend"></div></div>
+      <div id="macdPane" class="sub-pane" hidden><div id="macdLegend" class="pane-legend"></div></div>
     </section>
 
     <aside class="sidebar">

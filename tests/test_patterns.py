@@ -358,6 +358,41 @@ def test_api_analyze(monkeypatch, tmp_path):
     assert client.get("/api/analyze", params={"symbol": "x", "interval": "5m"}).status_code == 400
 
 
+def test_short_period_loads_the_outlook_window_and_warmup_closes(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKTEST_DIR", str(tmp_path))
+    full = make_ohlc(LEAD_UP + [(12, 120), (10, 105), (12, 120), (12, 95), (10, 90)] * 8)  # 473 bars
+    by_period = {"1y": full.iloc[-120:], "2y": full.iloc[-300:], "5y": full}
+    monkeypatch.setattr(main, "fetch_ohlcv", lambda s, i, p: ("TEST", by_period[p], {"currency": "USD"}))
+    body = TestClient(main.app).get("/api/analyze", params={"symbol": "test", "period": "1y"}).json()
+    # 120 bars asked for, under the outlook's 250: 2 years are loaded, and the page opens on the last 120
+    assert len(body["candles"]) == 300 and body["viewBars"] == 120
+    before = full["Close"].iloc[: len(full) - 300]
+    assert body["warmupCloses"] == [round(float(x), 4) for x in before.tail(main.WARMUP_BARS)]
+
+
+def test_long_period_outlook_reads_the_last_window(monkeypatch, tmp_path):
+    from app.outlook import build_outlook
+
+    monkeypatch.setenv("BACKTEST_DIR", str(tmp_path))
+    full = make_ohlc(LEAD_UP + [(12, 120), (10, 105), (12, 120), (12, 95), (10, 90)] * 8)
+    monkeypatch.setattr(main, "fetch_ohlcv", lambda s, i, p: ("TEST", full, {"currency": "USD"}))
+    body = TestClient(main.app).get("/api/analyze", params={"symbol": "test", "period": "10y"}).json()
+    frame = full.iloc[-main.OUTLOOK_BARS:]
+    pats, levels = analyze(frame)
+    expected = build_outlook(frame, pats, levels, "1d")
+    o = body["outlook"]
+    assert body["viewBars"] is None and len(body["candles"]) == len(full)
+    assert (o["bias"], o["score"]) == (expected["bias"], expected["score"])
+    # the ids point at the same patterns in the chart's own list, moved to its bar positions
+    off = len(full) - main.OUTLOOK_BARS
+    got = sorted((body["patterns"][k]["name"], body["patterns"][k]["start"]) for k in o["patternIds"])
+    assert got == sorted((pats[k].name, pats[k].start + off) for k in expected["patternIds"])
+    main_p = body["patterns"][o["mainId"]]
+    assert (main_p["name"], main_p["end"]) == (pats[expected["mainId"]].name, pats[expected["mainId"]].end + off)
+    starts = [p["start"] for p in body["patterns"]]
+    assert starts == sorted(starts)
+
+
 def test_downside_targets_stay_positive():
     from app.patterns.common import project
 

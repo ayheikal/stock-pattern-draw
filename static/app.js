@@ -24,6 +24,216 @@
   const volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
 
+  // ---------- indicators ----------
+  // Worked out here from the closes, starting in the server's warm-up closes so EMA / RSI / MACD read as
+  // they would on a longer chart. Each array lines up with the candles; null where it isn't defined yet.
+  function smaOf(v, n) {
+    const out = new Array(v.length).fill(null);
+    let sum = 0;
+    v.forEach((x, i) => {
+      sum += x - (i >= n ? v[i - n] : 0);
+      if (i >= n - 1) out[i] = sum / n;
+    });
+    return out;
+  }
+  function emaOf(v, n) { // seeded with the simple average of the first n values; nulls at the start are skipped
+    const out = new Array(v.length).fill(null), k = 2 / (n + 1), start = v.findIndex((x) => x != null);
+    if (start < 0 || v.length - start < n) return out;
+    let e = v.slice(start, start + n).reduce((a, b) => a + b, 0) / n;
+    out[start + n - 1] = e;
+    for (let i = start + n; i < v.length; i++) out[i] = e = v[i] * k + e * (1 - k);
+    return out;
+  }
+  function bollingerOf(v, n = 20, mult = 2) {
+    const mid = smaOf(v, n), up = mid.slice(), low = mid.slice();
+    for (let i = n - 1; i < v.length; i++) {
+      const sd = Math.sqrt(v.slice(i - n + 1, i + 1).reduce((a, x) => a + (x - mid[i]) ** 2, 0) / n);
+      up[i] = mid[i] + mult * sd;
+      low[i] = mid[i] - mult * sd;
+    }
+    return { mid, up, low };
+  }
+  function rsiOf(v, n = 14) { // Wilder's smoothing, as TradingView's RSI
+    const out = new Array(v.length).fill(null);
+    let gain = 0, loss = 0;
+    for (let i = 1; i < v.length; i++) {
+      const d = v[i] - v[i - 1], g = Math.max(d, 0), l = Math.max(-d, 0);
+      if (i <= n) {
+        gain += g / n;
+        loss += l / n;
+      } else {
+        gain = (gain * (n - 1) + g) / n;
+        loss = (loss * (n - 1) + l) / n;
+      }
+      if (i >= n) out[i] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+    }
+    return out;
+  }
+  function macdOf(v, fast = 12, slow = 26, sig = 9) {
+    const f = emaOf(v, fast), s = emaOf(v, slow);
+    const macd = v.map((_, i) => (f[i] != null && s[i] != null ? f[i] - s[i] : null));
+    const signal = emaOf(macd, sig);
+    return { macd, signal, hist: macd.map((m, i) => (m != null && signal[i] != null ? m - signal[i] : null)) };
+  }
+
+  const IND_DEFAULTS = { ema20: false, sma50: true, sma200: true, bb: false, volume: true, rsi: true, macd: false };
+  const indBoxes = [...document.querySelectorAll("[data-ind]")];
+  try {
+    const saved = JSON.parse(localStorage.getItem("indicators") || "null");
+    indBoxes.forEach((b) => { b.checked = saved && b.dataset.ind in saved ? saved[b.dataset.ind] : IND_DEFAULTS[b.dataset.ind]; });
+  } catch (_) {}
+  const indOn = (k) => indBoxes.find((b) => b.dataset.ind === k).checked;
+
+  const line = (opts) => chart.addLineSeries({ lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...opts });
+  const noScale = { autoscaleInfoProvider: () => null }; // bands shouldn't squash the candles
+  const ind = {
+    ema20: line({ title: "" }), sma50: line({ title: "" }),
+    bbUp: line({ lineWidth: 1, ...noScale }), bbMid: line({ lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, ...noScale }),
+    bbLow: line({ lineWidth: 1, ...noScale }),
+    values: null, // name -> array aligned with the candles, for the legends
+  };
+
+  // RSI and MACD each get a chart of their own under the price chart, kept in step with it.
+  function makePane(el) {
+    return LightweightCharts.createChart(el, {
+      autoSize: true,
+      layout: { attributionLogo: false }, // the price chart above carries the TradingView attribution
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      timeScale: { borderVisible: false, rightOffset: 8, visible: false },
+    });
+  }
+  const rsiPane = { el: $("rsiPane"), key: "rsi", legend: $("rsiLegend") };
+  rsiPane.chart = makePane(rsiPane.el);
+  rsiPane.main = rsiPane.chart.addLineSeries({ lineWidth: 1.5, priceLineVisible: false, lastValueVisible: true,
+    autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
+  const macdPane = { el: $("macdPane"), key: "macd", legend: $("macdLegend") };
+  macdPane.chart = makePane(macdPane.el);
+  macdPane.hist = macdPane.chart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+  macdPane.main = macdPane.chart.addLineSeries({ lineWidth: 1.5, priceLineVisible: false, lastValueVisible: true });
+  macdPane.signal = macdPane.chart.addLineSeries({ lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+  const panes = [rsiPane, macdPane];
+  const shownPanes = () => panes.filter((p) => !p.el.hidden);
+
+  function computeIndicators() {
+    const cs = state.data.candles, warm = state.data.warmupCloses || [];
+    const all = warm.concat(cs.map((c) => c.close)), cut = (a) => a.slice(warm.length);
+    const bb = bollingerOf(all), m = macdOf(all);
+    ind.values = { ema20: cut(emaOf(all, 20)), sma50: cut(smaOf(all, 50)), bbUp: cut(bb.up), bbMid: cut(bb.mid), bbLow: cut(bb.low),
+                   rsi: cut(rsiOf(all)), macd: cut(m.macd), signal: cut(m.signal), hist: cut(m.hist) };
+    // a time for every bar (blank where undefined) keeps each pane's bars lined up with the candles
+    const data = (k) => cs.map((c, i) => (ind.values[k][i] == null ? { time: c.time } : { time: c.time, value: ind.values[k][i] }));
+    for (const k of ["ema20", "sma50", "bbUp", "bbMid", "bbLow"]) ind[k].setData(data(k));
+    rsiPane.main.setData(data("rsi"));
+    macdPane.main.setData(data("macd"));
+    macdPane.signal.setData(data("signal"));
+    const up = css("--bull") + "99", down = css("--bear") + "99";
+    macdPane.hist.setData(cs.map((c, i) => {
+      const h = ind.values.hist[i];
+      return h == null ? { time: c.time } : { time: c.time, value: h, color: h >= 0 ? up : down };
+    }));
+  }
+
+  function applyIndicators() {
+    ind.ema20.applyOptions({ visible: indOn("ema20") });
+    ind.sma50.applyOptions({ visible: indOn("sma50") });
+    for (const k of ["bbUp", "bbMid", "bbLow"]) ind[k].applyOptions({ visible: indOn("bb") });
+    sma.applyOptions({ visible: indOn("sma200") });
+    volume.applyOptions({ visible: indOn("volume") });
+    for (const p of panes) p.el.hidden = !state.data || !indOn(p.key);
+    // one time axis, under the lowest chart
+    const shown = shownPanes();
+    chart.timeScale().applyOptions({ visible: !shown.length });
+    panes.forEach((p) => p.chart.timeScale().applyOptions({ visible: p === shown[shown.length - 1] }));
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (range) setRange(shown.map((p) => p.chart), range);
+    $("indCount").textContent = `(${indBoxes.filter((b) => b.checked).length})`;
+    alignScales();
+    updatePaneLegends(null);
+    const cs = state.data.candles;
+    updateLegend(cs[cs.length - 1], cs[cs.length - 2], cs.length - 1);
+  }
+
+  // The panes' price axes take the width of the widest, so every chart's bars line up.
+  let alignTimer = null;
+  function alignScales() {
+    clearTimeout(alignTimer);
+    const charts = [chart, ...shownPanes().map((p) => p.chart)];
+    charts.forEach((c) => c.applyOptions({ rightPriceScale: { minimumWidth: 0 } }));
+    alignTimer = setTimeout(() => {
+      const w = Math.max(...charts.map((c) => c.priceScale("right").width()));
+      charts.forEach((c) => c.applyOptions({ rightPriceScale: { minimumWidth: w } }));
+    }, 60);
+  }
+
+  function updatePaneLegends(i) {
+    if (!ind.values) return;
+    const v = ind.values, n = state.data.candles.length, at = i == null ? n - 1 : i;
+    const f = (x, d = 2) => (x == null ? "—" : x.toFixed(d));
+    const r = v.rsi[at];
+    rsiPane.legend.innerHTML = `RSI 14 <b style="color:${css("--rsi")}">${f(r)}</b>${r == null ? "" : r >= 70 ? " · overbought" : r <= 30 ? " · oversold" : ""}`;
+    const h = v.hist[at];
+    macdPane.legend.innerHTML = `MACD 12 26 9 <b style="color:${css("--macd")}">${f(v.macd[at], 3)}</b> `
+      + `<b style="color:${css("--signal")}">${f(v.signal[at], 3)}</b> <b style="color:${css(h >= 0 ? "--bull" : "--bear")}">${f(h, 3)}</b>`;
+  }
+
+  // Scrolling or zooming any chart moves the others; the crosshair follows across them too. The price chart
+  // leads: a pane only moves the rest while the pointer is on it, since a pane being shown or resized
+  // shifts its own view and would otherwise drag the price chart along.
+  let syncing = false, hovered = null;
+  const allCharts = () => [chart, ...panes.map((p) => p.chart)];
+  const setRange = (targets, range) => {
+    syncing = true;
+    targets.forEach((o) => o.timeScale().setVisibleLogicalRange(range));
+    syncing = false;
+  };
+  for (const p of panes) {
+    p.el.addEventListener("pointerenter", () => { hovered = p.chart; });
+    p.el.addEventListener("pointerleave", () => { if (hovered === p.chart) hovered = null; });
+    new ResizeObserver(() => {
+      const range = chart.timeScale().getVisibleLogicalRange();
+      if (!p.el.hidden && range) setTimeout(() => setRange([p.chart], range), 0);
+    }).observe(p.el);
+  }
+  for (const c of allCharts()) {
+    c.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (syncing || !range || (c !== chart && hovered !== c)) return;
+      setRange(allCharts().filter((o) => o !== c), range);
+    });
+  }
+  // i: the bar under the pointer (all charts share bar positions), or -1 when the pointer has left.
+  function crosshairTo(i, from) {
+    const cs = state.data.candles, time = i < 0 ? null : cs[i].time;
+    if (from !== chart) {
+      if (i < 0) chart.clearCrosshairPosition();
+      else chart.setCrosshairPosition(cs[i].close, time, candles);
+    }
+    for (const p of shownPanes()) {
+      if (p.chart === from) continue;
+      const val = i < 0 ? null : ind.values[p.key][i];
+      if (val == null) p.chart.clearCrosshairPosition();
+      else p.chart.setCrosshairPosition(val, time, p.main);
+    }
+    updatePaneLegends(i < 0 ? null : i);
+  }
+  for (const c of allCharts()) {
+    c.subscribeCrosshairMove((param) => {
+      if (!state.data || !ind.values || !param.sourceEvent) return; // only real mouse moves, not the ones set here
+      const n = state.data.candles.length;
+      crosshairTo(param.point && param.logical != null ? Math.max(0, Math.min(n - 1, Math.round(param.logical))) : -1, c);
+    });
+  }
+  [els.chart, ...panes.map((p) => p.el)].forEach((el) => el.addEventListener("mouseleave", () => state.data && ind.values && crosshairTo(-1, null)));
+
+  indBoxes.forEach((b) => b.addEventListener("change", () => {
+    try { localStorage.setItem("indicators", JSON.stringify(Object.fromEntries(indBoxes.map((x) => [x.dataset.ind, x.checked])))); } catch (_) {}
+    if (state.data) applyIndicators();
+  }));
+  document.addEventListener("click", (e) => { // close the menu on a click elsewhere
+    const menu = $("indMenu");
+    if (menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+
   const logScale = $("logScale");
   try { const v = localStorage.getItem("logScale"); if (v != null) logScale.checked = v === "1"; } catch (_) {}
   function applyScaleMode() {
@@ -36,13 +246,28 @@
   });
   applyScaleMode();
 
+  let rsiBounds = [];
   function applyTheme() {
     const text = css("--text"), grid = css("--grid");
-    chart.applyOptions({
+    const look = {
       layout: { background: { type: "solid", color: css("--panel") }, textColor: css("--muted"), fontFamily: css("--font") },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { vertLine: { labelBackgroundColor: text }, horzLine: { labelBackgroundColor: text } },
-    });
+    };
+    allCharts().forEach((c) => c.applyOptions(look));
+    ind.ema20.applyOptions({ color: css("--ema20") });
+    ind.sma50.applyOptions({ color: css("--sma50") });
+    const bb = css("--bb");
+    [ind.bbUp, ind.bbLow].forEach((s) => s.applyOptions({ color: bb + "aa" }));
+    ind.bbMid.applyOptions({ color: bb + "77" });
+    rsiPane.main.applyOptions({ color: css("--rsi") });
+    rsiBounds.forEach((l) => rsiPane.main.removePriceLine(l));
+    rsiBounds = [70, 30].map((price) => rsiPane.main.createPriceLine({
+      price, color: css("--muted") + "99", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true, title: "",
+    }));
+    macdPane.main.applyOptions({ color: css("--macd") });
+    macdPane.signal.applyOptions({ color: css("--signal") });
+    if (state.data && ind.values) computeIndicators(); // the MACD bars take their colours when the data is set
     // Hollow up candles, filled down candles, one ink color (TradingView "hollow" style).
     const ink = css("--candle");
     candles.applyOptions({
@@ -216,6 +441,14 @@
     return `<div class="meta track-line" title="${escapeHtml(tip)}"><span class="verdict-pill ${s.verdict}">${TRACK_LABELS[s.verdict]}</span> ${escapeHtml(t.label)}: ${said}</div>`;
   }
 
+  // The period asked for. A short one comes with extra history (the outlook always reads 250 bars), so the
+  // chart opens on just the asked-for bars and the rest is a scroll away.
+  function defaultView() {
+    const n = state.data.candles.length, v = state.data.viewBars;
+    if (v && v < n) chart.timeScale().setVisibleLogicalRange({ from: n - v - 0.5, to: n - 0.5 + 8 });
+    else chart.timeScale().fitContent();
+  }
+
   // The outlook's main signal above the chart: what it is, where it points, and how that pattern has done.
   function renderMain() {
     const o = state.data.outlook, t = state.data.patternTrack, box = $("mainPattern");
@@ -226,10 +459,15 @@
     const plan = o.plans.find((x) => !x.conditional && (x.side === "long") === (p.direction === "bullish"));
     const s = t && t.stats[`${p.name}|${p.direction}`];
     const status = p.confirmed ? "confirmed" : p.category === "trend" ? "active" : "forming";
+    // the strongest single pattern can be outweighed by the trend and the rest: say so rather than look like the verdict
+    const overall = /bullish/i.test(o.bias) ? "bullish" : /bearish/i.test(o.bias) ? "bearish" : "neutral";
+    const outweighed = overall !== p.direction
+      ? `<span class="muted">· outweighed: overall the chart says <b class="tag ${overall}">${escapeHtml(o.bias)}</b></span>` : "";
     box.dataset.id = p.id;
     box.innerHTML = `<span class="mp-k">Main pattern</span> <b>${escapeHtml(p.name)}</b> <span class="tag ${p.direction}">${p.direction}</span>
       <span class="muted">${status}${p.target != null ? ` · target ≈ ${fmt(p.target)}` : ""}${plan ? ` · R:R ${plan.rr.toFixed(2)}` : ""}</span>
-      ${s && s.verdict ? `<span class="verdict-pill ${s.verdict}" title="${escapeHtml(`${t.label} track record: ${p.direction === "bullish" ? "rose" : "fell"} after ${Math.round(s.asExpected)}% of ${s.n} vs ${Math.round(s.baseRate)}% of any period`)}">${TRACK_LABELS[s.verdict]} on ${escapeHtml(t.label)}</span>` : ""}`;
+      ${s && s.verdict ? `<span class="verdict-pill ${s.verdict}" title="${escapeHtml(`${t.label} track record: ${p.direction === "bullish" ? "rose" : "fell"} after ${Math.round(s.asExpected)}% of ${s.n} vs ${Math.round(s.baseRate)}% of any period`)}">${TRACK_LABELS[s.verdict]} on ${escapeHtml(t.label)}</span>` : ""}
+      ${outweighed}`;
   }
 
   // A PNG of the chart (with any measurement on it) and the symbol, interval and date written above it.
@@ -248,13 +486,27 @@
       URL.revokeObjectURL(url);
     }
     const ratio = shot.width / els.chart.clientWidth, head = Math.round(34 * ratio);
+    // the RSI / MACD panes go under the price chart, each with its legend written on it
+    const paneShots = shownPanes().map((p) => {
+      const s = p.chart.takeScreenshot(), g = s.getContext("2d");
+      g.font = `${Math.round(12 * ratio)}px ${css("--font")}`;
+      g.fillStyle = css("--muted");
+      g.textBaseline = "top";
+      g.fillText(p.legend.textContent, 8 * ratio, 5 * ratio);
+      return s;
+    });
     const out = document.createElement("canvas");
     out.width = shot.width;
-    out.height = shot.height + head;
+    out.height = head + shot.height + paneShots.reduce((h, s) => h + s.height, 0);
     const g = out.getContext("2d");
     g.fillStyle = css("--panel");
     g.fillRect(0, 0, out.width, out.height);
     g.drawImage(shot, 0, head);
+    let y = head + shot.height;
+    for (const s of paneShots) {
+      g.drawImage(s, 0, y);
+      y += s.height;
+    }
     const cs = state.data.candles, day = timeLabel(cs[cs.length - 1].time).slice(0, 10);
     const iv = els.interval.selectedOptions[0].textContent;
     g.fillStyle = css("--text");
@@ -558,20 +810,27 @@
     chart.timeScale().setVisibleLogicalRange({ from: p.start - pad, to: p.end + pad });
   }
 
-  function updateLegend(c, prev) {
+  function updateLegend(c, prev, i) {
     if (!c) { els.legend.innerHTML = ""; return; }
     const chg = prev ? ((c.close - prev.close) / prev.close) * 100 : 0;
     const cls = chg >= 0 ? "up" : "down";
-    const m = state.smaByTime && state.smaByTime.get(c.time);
-    els.legend.innerHTML = `${timeLabel(c.time)} &nbsp; O ${fmt(c.open)} H ${fmt(c.high)} L ${fmt(c.low)} C <span class="${cls}">${fmt(c.close)} (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)</span> &nbsp; Vol ${fmtVol(c.volume)}`
-      + (m != null ? ` &nbsp; <span class="sma">SMA ${state.data.sma.length} ${fmt(m)}</span>` : "");
+    const m = indOn("sma200") && state.smaByTime ? state.smaByTime.get(c.time) : null;
+    const v = ind.values, val = (k) => (v && v[k][i] != null ? fmt(v[k][i]) : null);
+    const extra = [
+      indOn("ema20") && val("ema20") && `<span class="ema20">EMA 20 ${val("ema20")}</span>`,
+      indOn("sma50") && val("sma50") && `<span class="sma50">SMA 50 ${val("sma50")}</span>`,
+      m != null && `<span class="sma">SMA ${state.data.sma.length} ${fmt(m)}</span>`,
+      indOn("bb") && val("bbUp") && `<span class="bb">BB ${val("bbLow")} – ${val("bbUp")}</span>`,
+    ].filter(Boolean);
+    els.legend.innerHTML = `${timeLabel(c.time)} &nbsp; O ${fmt(c.open)} H ${fmt(c.high)} L ${fmt(c.low)} C <span class="${cls}">${fmt(c.close)} (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)</span>`
+      + (indOn("volume") ? ` &nbsp; Vol ${fmtVol(c.volume)}` : "") + extra.map((s) => ` &nbsp; ${s}`).join("");
   }
 
   chart.subscribeCrosshairMove((param) => {
     if (!state.data) return;
     const cs = state.data.candles;
     const i = param.logical != null ? Math.max(0, Math.min(cs.length - 1, Math.round(param.logical))) : cs.length - 1;
-    updateLegend(cs[i], cs[i - 1]);
+    updateLegend(cs[i], cs[i - 1], i);
   });
 
   // ---------- data loading ----------
@@ -701,12 +960,14 @@
       const up = css("--bull") + "66", down = css("--bear") + "66";
       volume.setData(body.candles.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? up : down })));
       chart.timeScale().applyOptions({ timeVisible: interval === "1h", secondsVisible: false });
-      chart.timeScale().fitContent();
+      defaultView();
 
       const cs = body.candles, last = cs[cs.length - 1], prev = cs[cs.length - 2];
       els.title.textContent = `${body.name} (${body.symbol})`;
       els.subtitle.textContent = [body.exchange, body.currency, `${cs.length} bars`, `last ${fmt(last.close)}`].filter(Boolean).join(" · ");
-      updateLegend(last, prev);
+      computeIndicators();
+      applyIndicators();
+      updateLegend(last, prev, cs.length - 1);
       setMeasureMode(false);
       renderOutlook(body.outlook);
       renderMain();
@@ -844,13 +1105,20 @@
   // where the browser has no Fullscreen API for page elements.
   const panel = document.querySelector(".chart-panel");
   const isFull = () => document.fullscreenElement === panel || panel.classList.contains("full");
+  let keepRange = null; // the bars in view, kept across the resize so they spread over the new width
   function syncFull() {
     const on = isFull(), btn = $("fullBtn");
     btn.setAttribute("aria-pressed", String(on));
     btn.textContent = on ? "⛶ Exit full screen" : "⛶ Full screen";
     document.body.classList.toggle("no-scroll", panel.classList.contains("full"));
+    // Leaving the browser's full screen with Esc skips toggleFull; the chart hasn't resized yet at this point.
+    const range = keepRange || (state.data && chart.timeScale().getVisibleLogicalRange());
+    keepRange = null;
+    // the chart resizes itself on the next frames; put the same bars back once it has
+    if (range) setTimeout(() => chart.timeScale().setVisibleLogicalRange(range), 80);
   }
   function toggleFull() {
+    keepRange = chart.timeScale().getVisibleLogicalRange();
     if (isFull()) {
       if (document.fullscreenElement) document.exitFullscreen();
       panel.classList.remove("full");
@@ -904,7 +1172,7 @@
     state.selected = null;
     if (state.data) render();
     chart.priceScale("right").applyOptions({ autoScale: true });
-    chart.timeScale().fitContent();
+    defaultView();
   });
   $("shotBtn").addEventListener("click", () => state.data && snapshot());
 

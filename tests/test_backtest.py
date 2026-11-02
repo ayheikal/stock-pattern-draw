@@ -57,7 +57,8 @@ def test_replay_samples_are_spaced_and_complete():
     assert len(rows) == len(range(backtest.WINDOW - 1, len(df) - 4 * h, h))
     assert all(r["bias"] in backtest.BUCKETS for r in rows)
     assert any(r["outcome"] for r in rows)
-    assert all(isinstance(r["patterns"], list) for r in rows)
+    assert all(isinstance(r["patterns"], list) and isinstance(r["signals"], list) for r in rows)
+    assert any(r["signals"] for r in rows)
 
 
 def test_summarize_samples():
@@ -150,7 +151,8 @@ def test_backtest_api_run_and_profile_track(client, monkeypatch):
     assert res["symbols"] == 2 and set(res["perSymbol"]) == {"AAA.X", "BBB.X"}
     assert sum(b["n"] for b in res["overall"]["buckets"]) == res["overall"]["n"]
     assert isinstance(res["patterns"], list) and all(0 < p["n"] <= res["overall"]["n"] for p in res["patterns"])
-    assert all("patterns" in part for part in backtest.load("tiny", "1d")["ranges"].values())
+    assert all("patterns" in part and "signals" in part for part in backtest.load("tiny", "1d")["ranges"].values())
+    assert res["signals"] and all(0 < s["n"] <= res["overall"]["n"] for s in res["signals"])
 
     track = backtest.track_for("AAA.X", "1d")
     live_bias = next(b["bias"] for b in track["buckets"] if b["n"])

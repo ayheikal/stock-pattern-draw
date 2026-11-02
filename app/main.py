@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
 from . import access, alerts, backtest, decision, final, profile, shariah, valuation
 from .outlook import build_outlook
-from .patterns import analyze
+from .patterns import Pattern, analyze
 from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -73,8 +73,44 @@ SMA_LENGTH = 200
 WARMUP_PERIOD = {"3mo": "2y", "6mo": "2y", "1y": "2y", "2y": "5y", "5y": "10y", "10y": "max", "max": "max"}
 
 
-def _sma(resolved: str, df: pd.DataFrame, interval: str, period: str) -> pd.Series:
-    """Simple moving average of closes over SMA_LENGTH bars, aligned to df's index."""
+WARMUP_BARS = 300  # closes before the first bar sent along, so the chart's indicators match a longer history
+OUTLOOK_BARS = backtest.WINDOW  # bars the outlook reads: the track record's window
+LONGER_PERIOD = {"1h": "6mo", "1d": "2y", "1wk": "5y", "1mo": "max"}  # enough history for OUTLOOK_BARS
+
+
+def _shifted(p: Pattern, off: int) -> Pattern:
+    move = lambda pts: [(i + off, v) for i, v in pts]
+    return replace(p, start=p.start + off, end=p.end + off, points=move(p.points), lines=[move(ln) for ln in p.lines],
+                   neckline=move(p.neckline) if p.neckline else None)
+
+
+def _outlook_on_last_bars(df: pd.DataFrame, patterns: list[Pattern], interval: str, sma200: float | None) -> tuple[list[Pattern], dict]:
+    """The outlook from the last OUTLOOK_BARS bars of a long chart, with its pattern ids pointing into the
+    chart's own list: a pattern both found is matched by name, direction and bars; one only the shorter
+    window found is added, so the main-pattern banner and the Key patterns view can show it."""
+    off = len(df) - OUTLOOK_BARS
+    frame = df.iloc[off:]
+    f_patterns, f_levels = analyze(frame)
+    outlook = build_outlook(frame, f_patterns, f_levels, interval, sma200)
+    found = {(p.name, p.direction, p.start, p.end): k for k, p in enumerate(patterns)}
+    merged, to_chart = list(patterns), {}
+    for k in {*outlook["patternIds"], *([outlook["mainId"]] if outlook["mainId"] is not None else [])}:
+        p = _shifted(f_patterns[k], off)
+        key = (p.name, p.direction, p.start, p.end)
+        if key not in found:
+            found[key] = len(merged)
+            merged.append(p)
+        to_chart[k] = found[key]
+    # keep the chart's list in time order; ids are positions in it
+    order = sorted(range(len(merged)), key=lambda j: (merged[j].start, merged[j].end))
+    pos = {j: n for n, j in enumerate(order)}
+    outlook["patternIds"] = [pos[to_chart[k]] for k in outlook["patternIds"]]
+    outlook["mainId"] = pos[to_chart[outlook["mainId"]]] if outlook["mainId"] is not None else None
+    return [merged[j] for j in order], outlook
+
+
+def _warm_closes(resolved: str, df: pd.DataFrame, interval: str, period: str) -> pd.Series:
+    """df's closes, preceded by a longer history's when there is one."""
     closes = df["Close"]
     if WARMUP_PERIOD[period] != period:
         try:
@@ -82,7 +118,7 @@ def _sma(resolved: str, df: pd.DataFrame, interval: str, period: str) -> pd.Seri
             closes = longer["Close"].combine_first(closes)
         except (SymbolNotFound, InsufficientHistory):
             pass
-    return closes.rolling(SMA_LENGTH).mean().reindex(df.index)
+    return closes
 
 
 @app.get("/api/analyze")
@@ -110,9 +146,28 @@ def api_analyze(
             "EGX index names (EGX30, EGX33, EGX70) or TradingView codes (EGX:SHARIAH).",
         )
 
+    # The outlook always reads OUTLOOK_BARS bars, as the track record measured it, whatever period is shown:
+    # a shorter period loads more history and the page opens zoomed to the period asked for.
+    view_bars = None
+    if len(df) < OUTLOOK_BARS:
+        try:
+            _, longer, _ = fetch_ohlcv(resolved, interval, LONGER_PERIOD[interval])
+            earlier = longer[longer.index < df.index[0]]
+            if len(earlier):
+                view_bars, df, period = len(df), pd.concat([earlier, df]), LONGER_PERIOD[interval]
+        except (SymbolNotFound, InsufficientHistory):
+            pass
+
     times = _times(df.index, interval)
-    sma = _sma(resolved, df, interval, period)
+    closes = _warm_closes(resolved, df, interval, period)
+    sma = closes.rolling(SMA_LENGTH).mean().reindex(df.index)
+    warmup = closes[closes.index < df.index[0]].tail(WARMUP_BARS)
     patterns, levels = analyze(df)
+    sma_last = float(sma.iloc[-1]) if pd.notna(sma.iloc[-1]) else None
+    if len(df) > OUTLOOK_BARS * 1.2:
+        patterns, outlook = _outlook_on_last_bars(df, patterns, interval, sma_last)
+    else:
+        outlook = build_outlook(df, patterns, levels, interval, sma_last)
 
     def t(i: int):
         return times[max(0, min(len(times) - 1, int(i)))]
@@ -145,10 +200,13 @@ def api_analyze(
             "length": SMA_LENGTH,
             "points": [{"time": times[i], "value": _r(v)} for i, v in enumerate(sma) if pd.notna(v)],
         },
+        # Closes before the first candle: the chart's EMA / RSI / MACD start from these, as on a longer chart.
+        "warmupCloses": [_r(v) for v in warmup],
         "patterns": out_patterns,
         "patternTrack": backtest.pattern_track(resolved, interval),
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
-        "outlook": build_outlook(df, patterns, levels, interval, float(sma.iloc[-1]) if pd.notna(sma.iloc[-1]) else None),
+        "outlook": outlook,
+        "viewBars": view_bars,
         "halal": shariah.status(profile.load().shariah, resolved) if meta.get("currency") else None,
     }
 
