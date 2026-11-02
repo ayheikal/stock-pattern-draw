@@ -14,8 +14,8 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv
-from . import access, alerts, backtest, decision, final, profile, shariah, valuation
+from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv, in_usd, is_egx
+from . import access, alerts, backtest, decision, final, price_alerts, profile, shariah, valuation
 from .outlook import build_outlook
 from .patterns import Pattern, analyze
 from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
@@ -25,6 +25,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     alerts.start_background()  # Telegram checks during EGX hours (off unless enabled in My profile)
+    price_alerts.start_background()  # price alerts set on the chart, checked at any hour
     yield
 
 
@@ -121,6 +122,20 @@ def _warm_closes(resolved: str, df: pd.DataFrame, interval: str, period: str) ->
     return closes
 
 
+def _usd_line(resolved: str, df: pd.DataFrame, times: list, interval: str, period: str) -> dict | None:
+    """An EGX chart's closes in US dollars (÷ USD/EGP): what the index or stock is worth to a dollar investor."""
+    if not is_egx(resolved):
+        return None
+    try:
+        # a longer history than the chart's, so the first bars have a rate before them
+        _, fx, _ = fetch_ohlcv("USDEGP", "1h" if interval == "1h" else "1d", WARMUP_PERIOD[period])
+    except (SymbolNotFound, InsufficientHistory):
+        return None
+    usd = in_usd(df["Close"], fx["Close"], interval)
+    return {"rate": "USD/EGP", "points": [{"time": times[i], "value": _r(u), "rate": _r(r)}
+                                          for i, (u, r) in enumerate(usd.itertuples(index=False)) if pd.notna(u)]}
+
+
 @app.get("/api/analyze")
 def api_analyze(
     symbol: str = Query(..., min_length=1, max_length=32),
@@ -202,6 +217,7 @@ def api_analyze(
         },
         # Closes before the first candle: the chart's EMA / RSI / MACD start from these, as on a longer chart.
         "warmupCloses": [_r(v) for v in warmup],
+        "usd": _usd_line(resolved, df, times, interval, period),
         "patterns": out_patterns,
         "patternTrack": backtest.pattern_track(resolved, interval),
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
@@ -607,6 +623,35 @@ def api_alerts_test():
 def api_alerts_check():
     """Check now, whatever the time (the background loop only runs in EGX hours)."""
     return alerts.check_once()
+
+
+@app.get("/api/price-alerts")
+def api_price_alerts(symbol: str = Query("", max_length=40)):
+    """Alerts for one chart (or all of them), and whether Telegram can deliver them."""
+    s = profile.load().settings
+    return {"alerts": price_alerts.for_symbol(symbol) if symbol else price_alerts.load(),
+            "telegram": bool(s.telegramToken and s.telegramChatId)}
+
+
+@app.post("/api/price-alerts")
+def api_add_price_alert(new: price_alerts.NewAlert):
+    try:
+        return price_alerts.add(new)
+    except (SymbolNotFound, InsufficientHistory):
+        raise HTTPException(404, f"No price for '{new.symbol}'")
+
+
+@app.delete("/api/price-alerts/{alert_id}")
+def api_remove_price_alert(alert_id: str):
+    if not price_alerts.remove(alert_id):
+        raise HTTPException(404, "No such alert")
+    return {"ok": True}
+
+
+@app.post("/api/price-alerts/check")
+def api_check_price_alerts():
+    """Check now instead of waiting for the next minute."""
+    return price_alerts.check_once()
 
 
 @app.get("/")

@@ -132,6 +132,29 @@ def fetch_actions(resolved: str) -> list[dict]:
     return out
 
 
+def is_egx(resolved: str) -> bool:
+    """A resolved symbol priced in Egyptian pounds on the EGX (EGX:COMI, EGX:EGX30, COMI.CA)."""
+    s = resolved.upper()
+    return s.startswith("EGX:") or s.endswith(".CA")
+
+
+def in_usd(closes: pd.Series, rate: pd.Series, interval: str) -> pd.DataFrame:
+    """EGP closes divided by the USD/EGP rate at each bar: the latest hourly rate intraday, the day's rate on
+    daily bars, and the rate on the bar's last day on weekly / monthly ones (they're dated at their start).
+    Columns usd and rate, NaN before the rate's history begins."""
+    if interval == "1h":
+        key = lambda ix: ix.tz_convert("UTC") if ix.tz is not None else ix.tz_localize("UTC")
+    else:
+        key = lambda ix: (ix.tz_localize(None) if ix.tz is not None else ix).normalize()
+    rate = pd.Series(rate.to_numpy(), index=key(rate.index)).sort_index()
+    rate = rate[~rate.index.duplicated(keep="last")]
+    at = key(closes.index)
+    if interval in ("1wk", "1mo"):
+        at = (at[1:] - pd.Timedelta(days=1)).append(pd.DatetimeIndex([pd.Timestamp.max.normalize()]))
+    picked = rate.reindex(at, method="ffill").to_numpy()
+    return pd.DataFrame({"usd": closes.to_numpy() / picked, "rate": picked}, index=closes.index)
+
+
 def fetch_ohlcv(symbol: str, interval: str = "1d", period: str = "1y") -> tuple[str, pd.DataFrame, dict]:
     """Return (resolved_symbol, dataframe, metadata).
 

@@ -17,9 +17,13 @@
     autoSize: true,
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderVisible: false },
+    leftPriceScale: { borderVisible: false, visible: false },
     timeScale: { borderVisible: false, rightOffset: 8 },
   });
   const candles = chart.addCandlestickSeries({ borderVisible: true, priceLineVisible: false });
+  // EGX charts: the close in US dollars, on its own axis on the left (dollars are ~1/50 of the EGP price).
+  const usd = chart.addLineSeries({ priceScaleId: "left", lineWidth: 1.5, priceLineVisible: false, crosshairMarkerVisible: false,
+    title: "USD", priceFormat: { type: "price", precision: 2, minMove: 0.01 } });
   const sma = chart.addLineSeries({ lineWidth: 2, priceLineVisible: false, crosshairMarkerVisible: false, title: "SMA 200" });
   const volume = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
@@ -76,13 +80,15 @@
     return { macd, signal, hist: macd.map((m, i) => (m != null && signal[i] != null ? m - signal[i] : null)) };
   }
 
-  const IND_DEFAULTS = { ema20: false, sma50: true, sma200: true, bb: false, volume: true, rsi: true, macd: false };
+  const IND_DEFAULTS = { ema20: false, sma50: true, sma200: true, bb: false, volume: true, usd: true, rsi: true, macd: false };
   const indBoxes = [...document.querySelectorAll("[data-ind]")];
   try {
     const saved = JSON.parse(localStorage.getItem("indicators") || "null");
     indBoxes.forEach((b) => { b.checked = saved && b.dataset.ind in saved ? saved[b.dataset.ind] : IND_DEFAULTS[b.dataset.ind]; });
   } catch (_) {}
   const indOn = (k) => indBoxes.find((b) => b.dataset.ind === k).checked;
+  const usdBox = indBoxes.find((b) => b.dataset.ind === "usd");
+  const usdShown = () => !!(state.data && state.data.usd && indOn("usd"));
 
   const line = (opts) => chart.addLineSeries({ lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...opts });
   const noScale = { autoscaleInfoProvider: () => null }; // bands shouldn't squash the candles
@@ -100,6 +106,7 @@
       layout: { attributionLogo: false }, // the price chart above carries the TradingView attribution
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
+      leftPriceScale: { borderVisible: false, visible: false }, // an empty one when the price chart shows USD, so bars line up
       timeScale: { borderVisible: false, rightOffset: 8, visible: false },
     });
   }
@@ -140,6 +147,9 @@
     for (const k of ["bbUp", "bbMid", "bbLow"]) ind[k].applyOptions({ visible: indOn("bb") });
     sma.applyOptions({ visible: indOn("sma200") });
     volume.applyOptions({ visible: indOn("volume") });
+    usdBox.closest("label").hidden = !state.data.usd;
+    usd.applyOptions({ visible: usdShown() });
+    allCharts().forEach((c) => c.applyOptions({ leftPriceScale: { visible: usdShown() } }));
     for (const p of panes) p.el.hidden = !state.data || !indOn(p.key);
     // one time axis, under the lowest chart
     const shown = shownPanes();
@@ -147,22 +157,25 @@
     panes.forEach((p) => p.chart.timeScale().applyOptions({ visible: p === shown[shown.length - 1] }));
     const range = chart.timeScale().getVisibleLogicalRange();
     if (range) setRange(shown.map((p) => p.chart), range);
-    $("indCount").textContent = `(${indBoxes.filter((b) => b.checked).length})`;
+    $("indCount").textContent = `(${indBoxes.filter((b) => b.checked && !b.closest("label").hidden).length})`;
     alignScales();
     updatePaneLegends(null);
     const cs = state.data.candles;
     updateLegend(cs[cs.length - 1], cs[cs.length - 2], cs.length - 1);
   }
 
-  // The panes' price axes take the width of the widest, so every chart's bars line up.
+  // The panes' price axes (and the USD axis on the left) take the width of the widest, so every chart's bars line up.
   let alignTimer = null;
   function alignScales() {
     clearTimeout(alignTimer);
     const charts = [chart, ...shownPanes().map((p) => p.chart)];
-    charts.forEach((c) => c.applyOptions({ rightPriceScale: { minimumWidth: 0 } }));
+    const sides = usdShown() ? ["right", "left"] : ["right"];
+    charts.forEach((c) => c.applyOptions({ rightPriceScale: { minimumWidth: 0 }, leftPriceScale: { minimumWidth: 0 } }));
     alignTimer = setTimeout(() => {
-      const w = Math.max(...charts.map((c) => c.priceScale("right").width()));
-      charts.forEach((c) => c.applyOptions({ rightPriceScale: { minimumWidth: w } }));
+      for (const side of sides) {
+        const w = Math.max(...charts.map((c) => c.priceScale(side).width()));
+        charts.forEach((c) => c.applyOptions({ [`${side}PriceScale`]: { minimumWidth: w } }));
+      }
     }, 60);
   }
 
@@ -238,7 +251,7 @@
   try { const v = localStorage.getItem("logScale"); if (v != null) logScale.checked = v === "1"; } catch (_) {}
   function applyScaleMode() {
     const { Logarithmic, Normal } = LightweightCharts.PriceScaleMode;
-    chart.priceScale("right").applyOptions({ mode: logScale.checked ? Logarithmic : Normal });
+    for (const side of ["right", "left"]) chart.priceScale(side).applyOptions({ mode: logScale.checked ? Logarithmic : Normal });
   }
   logScale.addEventListener("change", () => {
     applyScaleMode();
@@ -276,6 +289,7 @@
       wickUpColor: ink, wickDownColor: ink,
     });
     sma.applyOptions({ color: css("--sma") });
+    usd.applyOptions({ color: css("--usd") });
     if (state.data) render();
   }
 
@@ -420,6 +434,13 @@
           lineWidth: 1, lineStyle: Dashed, axisLabelVisible: true, title: `${lv.kind === "support" ? "S" : "R"} ×${lv.touches}`,
         }));
       }
+    }
+
+    for (const a of alertUi.list.filter((x) => !x.triggeredAt)) {
+      state.priceLines.push(candles.createPriceLine({
+        price: a.price, color: css("--accent"), lineWidth: 1, lineStyle: LightweightCharts.LineStyle.LargeDashed,
+        axisLabelVisible: true, title: `🔔${a.note ? ` ${a.note.slice(0, 18)}` : ""}`,
+      }));
     }
 
     const order = new Map(state.data.candles.map((c, i) => [c.time, i]));
@@ -828,11 +849,13 @@
     const cls = chg >= 0 ? "up" : "down";
     const m = indOn("sma200") && state.smaByTime ? state.smaByTime.get(c.time) : null;
     const v = ind.values, val = (k) => (v && v[k][i] != null ? fmt(v[k][i]) : null);
+    const u = usdShown() && state.usdByTime ? state.usdByTime.get(c.time) : null;
     const extra = [
       indOn("ema20") && val("ema20") && `<span class="ema20">EMA 20 ${val("ema20")}</span>`,
       indOn("sma50") && val("sma50") && `<span class="sma50">SMA 50 ${val("sma50")}</span>`,
       m != null && `<span class="sma">SMA ${state.data.sma.length} ${fmt(m)}</span>`,
       indOn("bb") && val("bbUp") && `<span class="bb">BB ${val("bbLow")} – ${val("bbUp")}</span>`,
+      u && `<span class="usd" title="Close ÷ USD / EGP rate">$${fmt(u.value)} <span class="muted">at ${fmt(u.rate)} EGP/$</span></span>`,
     ].filter(Boolean);
     els.legend.innerHTML = `${timeLabel(c.time)} &nbsp; O ${fmt(c.open)} H ${fmt(c.high)} L ${fmt(c.low)} C <span class="${cls}">${fmt(c.close)} (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)</span>`
       + (indOn("volume") ? ` &nbsp; Vol ${fmtVol(c.volume)}` : "") + extra.map((s) => ` &nbsp; ${s}`).join("");
@@ -969,6 +992,9 @@
       sma.setData(smaPts);
       sma.applyOptions({ title: body.sma ? `SMA ${body.sma.length}` : "" });
       state.smaByTime = new Map(smaPts.map((p) => [p.time, p.value]));
+      const usdPts = (body.usd && body.usd.points) || [];
+      usd.setData(usdPts.map(({ time, value }) => ({ time, value })));
+      state.usdByTime = new Map(usdPts.map((p) => [p.time, p]));
       const up = css("--bull") + "66", down = css("--bear") + "66";
       volume.setData(body.candles.map((c) => ({ time: c.time, value: c.volume, color: c.close >= c.open ? up : down })));
       chart.timeScale().applyOptions({ timeVisible: interval === "1h", secondsVisible: false });
@@ -976,11 +1002,17 @@
 
       const cs = body.candles, last = cs[cs.length - 1], prev = cs[cs.length - 2];
       els.title.textContent = `${body.name} (${body.symbol})`;
-      els.subtitle.textContent = [body.exchange, body.currency, `${cs.length} bars`, `last ${fmt(last.close)}`].filter(Boolean).join(" · ");
+      const lastUsd = usdPts.length ? usdPts[usdPts.length - 1] : null;
+      els.subtitle.textContent = [body.exchange, body.currency, `${cs.length} bars`, `last ${fmt(last.close)}`,
+        lastUsd && `≈ $${fmt(lastUsd.value)} at ${fmt(lastUsd.rate)} EGP/$`].filter(Boolean).join(" · ");
       computeIndicators();
       applyIndicators();
       updateLegend(last, prev, cs.length - 1);
       setMeasureMode(false);
+      setAlertMode(false);
+      alertPrice.value = "";
+      alertUi.list = [];
+      loadAlerts();
       renderOutlook(body.outlook);
       renderMain();
       $("chartTools").hidden = false;
@@ -1006,6 +1038,7 @@
   els.chart.addEventListener("pointerdown", (e) => { shiftClick = e.shiftKey; }, true);
 
   function setMeasureMode(on) {
+    if (on && alertUi.on) setAlertMode(false); // one click-to-pick tool at a time
     measure.on = on;
     if (!on) measure.a = measure.b = measure.live = null;
     const btn = $("measureBtn");
@@ -1040,8 +1073,8 @@
     layer.replaceChildren();
     const a = measure.a, b = measure.b || measure.live;
     if (!state.data || !a || !b) return;
-    const ts = chart.timeScale();
-    const x1 = ts.logicalToCoordinate(a.logical), x2 = ts.logicalToCoordinate(b.logical);
+    const ts = chart.timeScale(), off = usdShown() ? chart.priceScale("left").width() : 0; // the USD axis pushes the plot right
+    const x1 = off + ts.logicalToCoordinate(a.logical), x2 = off + ts.logicalToCoordinate(b.logical);
     const y1 = candles.priceToCoordinate(a.price), y2 = candles.priceToCoordinate(b.price);
     if ([x1, x2, y1, y2].some((v) => v == null)) return;
     const color = css(b.price >= a.price ? "--bull" : "--bear");
@@ -1076,7 +1109,7 @@
     const bb = label.getBBox(), w = bb.width + 16, h = bb.height + 10;
     const plotW = ts.width(), plotH = els.chart.clientHeight - ts.height();
     const above = b.price >= a.price;
-    const cx = Math.min(Math.max((x1 + x2) / 2, w / 2 + 4), plotW - w / 2 - 4);
+    const cx = Math.min(Math.max((x1 + x2) / 2, off + w / 2 + 4), off + plotW - w / 2 - 4);
     let top = above ? Math.min(y1, y2) - h - 8 : Math.max(y1, y2) + 8;
     top = Math.min(Math.max(top, 4), plotH - h - 4);
     label.querySelectorAll("tspan").forEach((t) => t.setAttribute("x", cx));
@@ -1110,6 +1143,108 @@
   $("measureBtn").addEventListener("click", () => setMeasureMode(!measure.on));
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && measure.on) setMeasureMode(false);
+  });
+
+  // ---------- price alerts ----------
+  // Pick a price on the chart (or type one) and save it: the server checks every minute and sends a
+  // Telegram message when price gets there. Waiting alerts are drawn as dashed lines.
+  const alertUi = { on: false, list: [], telegram: false, pending: null };
+  const alertBox = $("alertBox"), alertPrice = $("alertPrice");
+
+  async function loadAlerts() {
+    const d = state.data;
+    try {
+      const body = await (await fetch(`/api/price-alerts?${new URLSearchParams({ symbol: d.symbol })}`)).json();
+      if (state.data !== d) return;
+      alertUi.list = body.alerts;
+      alertUi.telegram = body.telegram;
+    } catch (_) {
+      alertUi.list = [];
+    }
+    renderAlerts();
+    render();
+  }
+
+  function renderAlerts() {
+    const waiting = alertUi.list.filter((a) => !a.triggeredAt);
+    $("alertBtn").textContent = waiting.length ? `🔔 Alert (${waiting.length})` : "🔔 Alert";
+    const day = (iso) => iso.slice(0, 10);
+    $("alertList").innerHTML = alertUi.list.slice().reverse().map((a) => `
+      <li class="${a.triggeredAt ? "done" : ""}" data-id="${a.id}">
+        <b>${a.direction === "above" ? "▲" : "▼"} ${fmt(a.price)}</b>
+        <span class="al-note">${a.triggeredAt ? `✓ reached ${fmt(a.triggeredPrice)} on ${day(a.triggeredAt)}${a.sent ? " · sent" : ""}` : escapeHtml(a.note || `set at ${fmt(a.createdPrice)}`)}</span>
+        ${a.error ? `<span class="al-err" title="${escapeHtml(a.error)}">⚠</span>` : ""}
+        <button type="button" data-del="${a.id}" title="Delete this alert" aria-label="Delete">✕</button>
+      </li>`).join("");
+    updateAlertHint();
+  }
+
+  function updateAlertHint() {
+    const hint = $("alertHint"), p = Number(alertPrice.value);
+    hint.classList.toggle("warn", !alertUi.telegram);
+    if (!alertUi.telegram) {
+      hint.innerHTML = 'Telegram isn\'t set up, so alerts can\'t reach you yet: add the bot in <a href="/profile">My profile → Alerts</a>.';
+    } else if (p > 0 && state.data) {
+      const last = state.data.candles[state.data.candles.length - 1].close;
+      hint.textContent = `A Telegram message when price ${p > last ? "rises" : "falls"} to ${fmt(p)} (now ${fmt(last)}). Checked every few minutes.`;
+    } else {
+      hint.textContent = "Checked every few minutes, at any hour, while the app is running.";
+    }
+    // a dashed preview line where the new alert would go
+    if (alertUi.pending) candles.removePriceLine(alertUi.pending);
+    alertUi.pending = alertUi.on && p > 0
+      ? candles.createPriceLine({ price: p, color: css("--accent"), lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: true, title: "🔔 new" })
+      : null;
+  }
+
+  function setAlertMode(on) {
+    alertUi.on = on;
+    if (on) setMeasureMode(false);
+    alertBox.hidden = !on;
+    $("alertBtn").setAttribute("aria-pressed", String(on));
+    els.chart.classList.toggle("alerting", on);
+    if (on && !alertPrice.value && state.data) alertPrice.value = state.data.candles[state.data.candles.length - 1].close;
+    updateAlertHint();
+  }
+
+  chart.subscribeClick((param) => {
+    if (!alertUi.on || !param.point) return;
+    const p = candles.coordinateToPrice(param.point.y);
+    if (p == null || p <= 0) return;
+    const d = decimals(p);
+    alertPrice.value = Number(p.toFixed(d));
+    updateAlertHint();
+  });
+  $("alertBtn").addEventListener("click", () => state.data && setAlertMode(!alertUi.on));
+  $("alertClose").addEventListener("click", () => setAlertMode(false));
+  alertPrice.addEventListener("input", updateAlertHint);
+  alertBox.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = alertBox.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/price-alerts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: state.data.symbol, name: state.data.name, price: Number(alertPrice.value), note: $("alertNote").value }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || `Request failed (${res.status})`);
+      $("alertNote").value = "";
+      await loadAlerts();
+    } catch (err) {
+      $("alertHint").textContent = err.message;
+      $("alertHint").classList.add("warn");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $("alertList").addEventListener("click", async (e) => {
+    const del = e.target.closest("[data-del]");
+    if (!del) return;
+    await fetch(`/api/price-alerts/${del.dataset.del}`, { method: "DELETE" });
+    loadAlerts();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && alertUi.on && !e.target.closest("input")) setAlertMode(false);
   });
 
   // ---------- full screen ----------

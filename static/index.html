@@ -78,6 +78,7 @@
         <label><input type="checkbox" data-ind="sma200" checked /> <span class="swatch sma200"></span>SMA 200</label>
         <label><input type="checkbox" data-ind="bb" /> <span class="swatch bb"></span>Bollinger Bands (20, 2)</label>
         <label><input type="checkbox" data-ind="volume" checked /> <span class="swatch vol"></span>Volume</label>
+        <label title="EGX charts only: each close divided by that day's USD / EGP rate, on the left axis"><input type="checkbox" data-ind="usd" checked /> <span class="swatch usd"></span>In US dollars</label>
         <div class="ind-group">Below the chart</div>
         <label><input type="checkbox" data-ind="rsi" checked /> <span class="swatch rsi"></span>RSI 14</label>
         <label><input type="checkbox" data-ind="macd" /> <span class="swatch macd"></span>MACD (12, 26, 9)</label>
@@ -112,11 +113,24 @@
         <div class="chart-tools" id="chartTools" hidden>
           <button type="button" id="measureBtn" aria-pressed="false"
             title="Measure: click a start and an end point on the chart for the price change, % and time between them. Shift+click works any time; Esc stops.">⟷ Measure</button>
+          <button type="button" id="alertBtn" aria-pressed="false"
+            title="Price alert: pick a price on the chart and save it; a Telegram message comes when price gets there">🔔 Alert</button>
           <button type="button" id="fitBtn" title="Show the whole history again">⤢ Reset view</button>
           <button type="button" id="shotBtn" title="Save a picture of the chart">⤓ Snapshot</button>
           <button type="button" id="fullBtn" aria-pressed="false" title="Fill the screen with the chart (F); Esc to leave">⛶ Full screen</button>
         </div>
         <svg id="measureLayer" class="measure-layer" aria-hidden="true"></svg>
+        <form id="alertBox" class="alert-box" hidden>
+          <div class="ab-head"><b>🔔 Price alert</b><span class="muted small">click the chart to pick a price</span>
+            <button type="button" id="alertClose" class="ab-close" aria-label="Close">✕</button></div>
+          <div class="ab-row">
+            <input id="alertPrice" type="number" step="any" min="0" required placeholder="Price" aria-label="Alert price" />
+            <input id="alertNote" type="text" maxlength="120" placeholder="Note (optional)" aria-label="Note" />
+            <button type="submit">Save</button>
+          </div>
+          <div id="alertHint" class="small"></div>
+          <ul id="alertList" class="alert-list"></ul>
+        </form>
         <div id="status" class="status">Type a stock, index or asset code above: <b>AAPL</b>, <b>^GSPC</b>, <b>COMI.CA</b>, <b>EGX33</b>, <b>BTC-USD</b>.</div>
       </div>
       <div id="rsiPane" class="sub-pane" hidden><div id="rsiLegend" class="pane-legend"></div></div>

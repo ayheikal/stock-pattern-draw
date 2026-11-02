@@ -18,6 +18,7 @@
   --sma: #f472b6;
   --ema20: #f59e0b;
   --sma50: #3b82f6;
+  --usd: #0891b2;
   --bb: #8b5cf6;
   --rsi: #7c3aed;
   --macd: #2563eb;
@@ -51,6 +52,7 @@
     --hover: #1a2030;
     --candle: #cbd5e1;
     --sma: #f9a8d4;
+    --usd: #22d3ee;
     --topbar: rgba(19, 23, 34, 0.78);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.6);
@@ -75,6 +77,7 @@
   --hover: #1a2030;
   --candle: #cbd5e1;
   --sma: #f9a8d4;
+  --usd: #22d3ee;
   --topbar: rgba(19, 23, 34, 0.78);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.6);
@@ -251,7 +254,26 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .chart-tools button:hover { color: var(--text); background: var(--hover); }
 .chart-tools button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .measure-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: hidden; }
-.chart.measuring canvas { cursor: crosshair !important; }
+.chart.measuring canvas, .chart.alerting canvas { cursor: crosshair !important; }
+.alert-box { position: absolute; top: 38px; left: 6px; z-index: 4; width: min(360px, calc(100% - 12px)); display: flex; flex-direction: column;
+  gap: 8px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); }
+.alert-box[hidden] { display: none; }
+.ab-head { display: flex; align-items: baseline; gap: 8px; }
+.ab-close { margin-left: auto; font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; }
+.ab-row { display: flex; gap: 6px; }
+.ab-row input { font: inherit; font-size: 13px; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel); color: var(--text); }
+.ab-row #alertPrice { width: 110px; flex: none; }
+.ab-row #alertNote { flex: 1; }
+.ab-row button { font: inherit; font-size: 13px; font-weight: 600; padding: 5px 12px; border: 0; border-radius: 8px; color: #fff;
+  background: var(--btn); cursor: pointer; }
+#alertHint.warn { color: var(--resistance); }
+.alert-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; max-height: 160px; overflow: auto; }
+.alert-list li { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px; background: var(--hover); }
+.alert-list li.done { opacity: 0.7; }
+.alert-list .al-note { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.alert-list .al-err { color: var(--bear); font-size: 12px; }
+.alert-list button { margin-left: auto; font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .sub-pane { position: relative; height: 130px; flex: none; border-top: 1px solid var(--border); margin-top: 2px; }
 .sub-pane[hidden] { display: none; }
 .pane-legend { position: absolute; top: 4px; left: 8px; z-index: 3; font-size: 12px; color: var(--muted); pointer-events: none;
@@ -268,8 +290,9 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .ind-group + label { margin-top: -2px; }
 .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; background: var(--c, var(--muted)); }
 .swatch.ema20 { --c: var(--ema20); } .swatch.sma50 { --c: var(--sma50); } .swatch.sma200 { --c: var(--sma); } .swatch.bb { --c: var(--bb); }
-.swatch.vol { --c: var(--muted); } .swatch.rsi { --c: var(--rsi); } .swatch.macd { --c: var(--macd); }
+.swatch.vol { --c: var(--muted); } .swatch.usd { --c: var(--usd); } .swatch.rsi { --c: var(--rsi); } .swatch.macd { --c: var(--macd); }
 .legend .ema20 { color: var(--ema20); } .legend .sma50 { color: var(--sma50); } .legend .bb { color: var(--bb); }
+.legend .usd { color: var(--usd); }
 @media (max-width: 720px) { .sub-pane { height: 100px; } }
 /* Full screen: the browser's own, or a fixed overlay where that isn't available (iPhone Safari). */
 .chart-panel:fullscreen, .chart-panel.full { background: var(--panel); padding: 16px 22px; border-radius: 0; overflow: auto; }
