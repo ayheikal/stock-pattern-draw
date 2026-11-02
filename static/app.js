@@ -5,8 +5,9 @@
     form: $("search"), symbol: $("symbol"), interval: $("interval"), period: $("period"),
     chart: $("chart"), status: $("status"), title: $("title"), subtitle: $("subtitle"),
     legend: $("legend"), list: $("patternList"), levels: $("levelList"), count: $("count"),
-    minConf: $("minConf"), minConfOut: $("minConfOut"), theme: $("theme"),
+    minConf: $("minConf"), minConfOut: $("minConfOut"), theme: $("theme"), showMode: $("showMode"),
   };
+  try { const v = localStorage.getItem("showMode"); if (v) els.showMode.value = v; } catch (_) {}
 
   const state = { data: null, selected: null, overlays: [], priceLines: [] };
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -63,9 +64,25 @@
   const timeLabel = (t) => (typeof t === "string" ? t : new Date(t * 1000).toISOString().slice(0, 16).replace("T", " "));
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function visiblePatterns() {
+  // Patterns the layer checkboxes and confidence slider let through.
+  function filteredPatterns() {
     if (!state.data) return [];
     return state.data.patterns.filter((p) => catEnabled(p.category) && (p.category === "candle" || p.confidence >= minConf()));
+  }
+
+  const RECENT_BARS = 60; // "Recent": chart patterns that ended within this many bars, candles within a third of it
+
+  // The Show setting: what drives the outlook (key), the last few months (recent), or everything.
+  function shown(p) {
+    const mode = els.showMode.value, o = state.data.outlook;
+    if (mode === "all" || state.selected === p.id) return true;
+    if (mode === "key") return !!o && (o.mainId === p.id || o.patternIds.includes(p.id));
+    const age = state.data.candles.length - 1 - p.end;
+    return age <= (p.category === "candle" ? RECENT_BARS / 3 : RECENT_BARS);
+  }
+
+  function visiblePatterns() {
+    return filteredPatterns().filter(shown);
   }
 
   function setStatus(msg, isError = false) {
@@ -186,6 +203,73 @@
     renderList(pats);
   }
 
+  const TRACK_LABELS = { useful: "Useful", misleading: "Misleading", unclear: "Unclear", none: "No edge", few: "Not enough data" };
+
+  // How this pattern has done across the market's Track record run (none for trendlines or patterns pointing neither way).
+  function trackLine(p) {
+    const t = state.data.patternTrack;
+    if (!t || p.category === "trend" || p.direction === "neutral") return "";
+    const s = t.stats[`${p.name}|${p.direction}`];
+    if (!s) return `<div class="meta track-line">No ${escapeHtml(t.label)} track record for it yet</div>`;
+    const tip = `Track record: ${s.n} completed on ${t.symbols} ${t.label} symbols since ${t.since}, price change over the ${t.horizon}`;
+    const said = `${p.direction === "bullish" ? "rose" : "fell"} after ${Math.round(s.asExpected)}% of ${s.n.toLocaleString()} vs ${Math.round(s.baseRate)}% of any period`;
+    return `<div class="meta track-line" title="${escapeHtml(tip)}"><span class="verdict-pill ${s.verdict}">${TRACK_LABELS[s.verdict]}</span> ${escapeHtml(t.label)}: ${said}</div>`;
+  }
+
+  // The outlook's main signal above the chart: what it is, where it points, and how that pattern has done.
+  function renderMain() {
+    const o = state.data.outlook, t = state.data.patternTrack, box = $("mainPattern");
+    const p = o && o.mainId != null ? state.data.patterns.find((x) => x.id === o.mainId) : null;
+    box.hidden = !p;
+    if (!p) return;
+    // The plan follows the overall bias, which can disagree with the main pattern; its R:R only belongs here when they agree.
+    const plan = o.plans.find((x) => !x.conditional && (x.side === "long") === (p.direction === "bullish"));
+    const s = t && t.stats[`${p.name}|${p.direction}`];
+    const status = p.confirmed ? "confirmed" : p.category === "trend" ? "active" : "forming";
+    box.dataset.id = p.id;
+    box.innerHTML = `<span class="mp-k">Main pattern</span> <b>${escapeHtml(p.name)}</b> <span class="tag ${p.direction}">${p.direction}</span>
+      <span class="muted">${status}${p.target != null ? ` · target ≈ ${fmt(p.target)}` : ""}${plan ? ` · R:R ${plan.rr.toFixed(2)}` : ""}</span>
+      ${s && s.verdict ? `<span class="verdict-pill ${s.verdict}" title="${escapeHtml(`${t.label} track record: ${p.direction === "bullish" ? "rose" : "fell"} after ${Math.round(s.asExpected)}% of ${s.n} vs ${Math.round(s.baseRate)}% of any period`)}">${TRACK_LABELS[s.verdict]} on ${escapeHtml(t.label)}</span>` : ""}`;
+  }
+
+  // A PNG of the chart (with any measurement on it) and the symbol, interval and date written above it.
+  async function snapshot() {
+    const shot = chart.takeScreenshot();
+    if (layer.childNodes.length) {
+      const svg = layer.cloneNode(true);
+      svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      svg.setAttribute("width", els.chart.clientWidth);
+      svg.setAttribute("height", els.chart.clientHeight);
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" }));
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      shot.getContext("2d").drawImage(img, 0, 0, shot.width, shot.height);
+      URL.revokeObjectURL(url);
+    }
+    const ratio = shot.width / els.chart.clientWidth, head = Math.round(34 * ratio);
+    const out = document.createElement("canvas");
+    out.width = shot.width;
+    out.height = shot.height + head;
+    const g = out.getContext("2d");
+    g.fillStyle = css("--panel");
+    g.fillRect(0, 0, out.width, out.height);
+    g.drawImage(shot, 0, head);
+    const cs = state.data.candles, day = timeLabel(cs[cs.length - 1].time).slice(0, 10);
+    const iv = els.interval.selectedOptions[0].textContent;
+    g.fillStyle = css("--text");
+    g.font = `600 ${Math.round(15 * ratio)}px ${css("--font")}`;
+    g.textBaseline = "middle";
+    g.fillText(`${state.data.name} (${state.data.symbol}) · ${iv} · ${day}`, 10 * ratio, head / 2);
+    out.toBlob((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${state.data.symbol.replace(/[^\w.-]+/g, "_")}_${els.interval.value}_${day}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+  }
+
   function renderList(pats) {
     const chartPats = pats.filter((p) => p.category !== "candle").reverse();
     const candlePats = pats.filter((p) => p.category === "candle").reverse();
@@ -195,11 +279,19 @@
         <div class="row"><span class="name">${escapeHtml(p.name)}</span><span class="tag ${p.direction}">${p.direction}</span></div>
         <div class="meta">${timeLabel(p.startTime)} → ${timeLabel(p.endTime)} · ${p.category}${p.confirmed ? " · confirmed" : ["reversal", "continuation", "gap"].includes(p.category) ? " · forming" : ""}</div>
         ${p.target != null ? `<div class="meta">Target ≈ ${fmt(p.target)}</div>` : ""}
+        ${trackLine(p)}
         ${p.category !== "candle" ? `<div class="confbar" title="Confidence ${Math.round(p.confidence * 100)}%"><span style="width:${p.confidence * 100}%"></span></div>` : ""}
       </li>`;
+    const hidden = filteredPatterns().length - pats.length;
+    const showAll = `<button type="button" class="link-inline" data-show="all">Show all</button>`;
+    const more = !hidden ? "" : els.showMode.value === "key"
+      ? `<li class="empty more">Showing only what drives the outlook; ${hidden} older or weaker pattern${hidden === 1 ? "" : "s"} hidden. ${showAll}</li>`
+      : `<li class="empty more">${hidden} older pattern${hidden === 1 ? "" : "s"} hidden. ${showAll}</li>`;
     els.list.innerHTML = chartPats.length + candlePats.length
-      ? chartPats.map(item).join("") + candlePats.map(item).join("")
-      : `<li class="empty">No patterns match the current filters.</li>`;
+      ? chartPats.map(item).join("") + candlePats.map(item).join("") + more
+      : els.showMode.value === "key" && hidden
+        ? `<li class="empty more">No pattern is driving the outlook right now; the trend and levels do. ${showAll}</li>`
+        : `<li class="empty">No patterns match the current filters.</li>`;
 
     const last = state.data.candles[state.data.candles.length - 1].close;
     els.levels.innerHTML = state.data.levels.length
@@ -615,7 +707,10 @@
       els.title.textContent = `${body.name} (${body.symbol})`;
       els.subtitle.textContent = [body.exchange, body.currency, `${cs.length} bars`, `last ${fmt(last.close)}`].filter(Boolean).join(" · ");
       updateLegend(last, prev);
+      setMeasureMode(false);
       renderOutlook(body.outlook);
+      renderMain();
+      $("chartTools").hidden = false;
       render();
       setStatus("");
       updateTradingViewLink(body.symbol, interval);
@@ -628,6 +723,156 @@
       btn.disabled = false;
     }
   }
+
+  // ---------- measure tool ----------
+  // Two clicks span a box showing the price change, % and time between them. Points are kept as
+  // { logical bar index, price } so the box stays on the bars when the chart is zoomed or panned.
+  const measure = { on: false, a: null, b: null, live: null };
+  const layer = $("measureLayer");
+  let shiftClick = false;
+  els.chart.addEventListener("pointerdown", (e) => { shiftClick = e.shiftKey; }, true);
+
+  function setMeasureMode(on) {
+    measure.on = on;
+    if (!on) measure.a = measure.b = measure.live = null;
+    const btn = $("measureBtn");
+    btn.setAttribute("aria-pressed", String(on));
+    btn.textContent = on ? "⟷ Measuring · Esc to stop" : "⟷ Measure";
+    els.chart.classList.toggle("measuring", on);
+    drawMeasure();
+  }
+
+  function pointAt(param) {
+    if (!param.point || param.logical == null) return null;
+    const price = candles.coordinateToPrice(param.point.y);
+    return price == null ? null : { logical: Math.round(param.logical), price };
+  }
+
+  // Bar time in seconds; past the last bar it's extrapolated at the average bar spacing.
+  function barSeconds(i) {
+    const cs = state.data.candles, secs = (t) => (typeof t === "number" ? t : Date.parse(t) / 1000);
+    const first = secs(cs[0].time), last = secs(cs[cs.length - 1].time), step = (last - first) / Math.max(1, cs.length - 1);
+    return i < 0 ? first + i * step : i >= cs.length ? last + (i - cs.length + 1) * step : secs(cs[i].time);
+  }
+
+  function spanText(a, b) {
+    const bars = Math.abs(b.logical - a.logical);
+    const days = Math.abs(barSeconds(b.logical) - barSeconds(a.logical)) / 86400;
+    const span = days < 2 ? `${Math.round(days * 24)} hours` : days < 60 ? `${Math.round(days)} days`
+      : days < 730 ? `${(days / 30.44).toFixed(1)} months` : `${(days / 365.25).toFixed(1)} years`;
+    return `${bars} bar${bars === 1 ? "" : "s"} · ${span}`;
+  }
+
+  function drawMeasure() {
+    layer.replaceChildren();
+    const a = measure.a, b = measure.b || measure.live;
+    if (!state.data || !a || !b) return;
+    const ts = chart.timeScale();
+    const x1 = ts.logicalToCoordinate(a.logical), x2 = ts.logicalToCoordinate(b.logical);
+    const y1 = candles.priceToCoordinate(a.price), y2 = candles.priceToCoordinate(b.price);
+    if ([x1, x2, y1, y2].some((v) => v == null)) return;
+    const color = css(b.price >= a.price ? "--bull" : "--bear");
+    const add = (tag, attrs, text) => {
+      const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      if (text) n.textContent = text;
+      layer.appendChild(n);
+      return n;
+    };
+    add("rect", { x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1), height: Math.abs(y2 - y1),
+                  fill: color, "fill-opacity": 0.12, stroke: color, "stroke-opacity": 0.45 });
+    add("line", { x1, y1, x2, y2, stroke: color, "stroke-width": 1.5, "stroke-dasharray": "5 4" });
+    add("circle", { cx: x1, cy: y1, r: 3.5, fill: color });
+    add("circle", { cx: x2, cy: y2, r: 3.5, fill: color });
+
+    const chg = b.price - a.price, pct = (chg / a.price) * 100, sign = (v) => (v >= 0 ? "+" : "−");
+    const d = decimals(a.price); // the change gets the price's decimals, not its own (0.35 would show as 0.35000)
+    const amount = Math.abs(chg).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+    const rows = [`${sign(chg)}${amount} (${sign(pct)}${Math.abs(pct).toFixed(2)}%)`, spanText(a, b)];
+    const font = { "font-family": css("--font"), "font-size": 12 };
+    const label = add("text", { ...font, fill: css("--text"), "text-anchor": "middle" });
+    rows.forEach((r, i) => {
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+      t.setAttribute("x", 0);
+      t.setAttribute("dy", i ? 16 : 0);
+      if (!i) t.setAttribute("font-weight", 700);
+      t.textContent = r;
+      label.appendChild(t);
+    });
+    // Box the label just beyond the end it points to, kept inside the plot area.
+    const bb = label.getBBox(), w = bb.width + 16, h = bb.height + 10;
+    const plotW = ts.width(), plotH = els.chart.clientHeight - ts.height();
+    const above = b.price >= a.price;
+    const cx = Math.min(Math.max((x1 + x2) / 2, w / 2 + 4), plotW - w / 2 - 4);
+    let top = above ? Math.min(y1, y2) - h - 8 : Math.max(y1, y2) + 8;
+    top = Math.min(Math.max(top, 4), plotH - h - 4);
+    label.querySelectorAll("tspan").forEach((t) => t.setAttribute("x", cx));
+    label.setAttribute("y", top + 5 - bb.y);
+    const box = add("rect", { x: cx - w / 2, y: top, width: w, height: h, rx: 6, fill: css("--panel"), stroke: color, "stroke-width": 1 });
+    layer.insertBefore(box, label);
+  }
+
+  chart.subscribeClick((param) => {
+    if (!state.data || !(measure.on || shiftClick)) return;
+    const p = pointAt(param);
+    if (!p) return;
+    if (!measure.on) setMeasureMode(true);
+    if (!measure.a || measure.b) {
+      measure.a = p;
+      measure.b = null;
+      measure.live = p;
+    } else {
+      measure.b = p;
+    }
+    drawMeasure();
+  });
+  chart.subscribeCrosshairMove((param) => {
+    if (measure.on && measure.a && !measure.b) {
+      measure.live = pointAt(param) || measure.live;
+      drawMeasure();
+    }
+  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => measure.a && drawMeasure());
+  new ResizeObserver(() => measure.a && drawMeasure()).observe(els.chart);
+  $("measureBtn").addEventListener("click", () => setMeasureMode(!measure.on));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && measure.on) setMeasureMode(false);
+  });
+
+  // ---------- full screen ----------
+  // The whole chart panel (title, main pattern, legend, chart) fills the screen; a fixed overlay stands in
+  // where the browser has no Fullscreen API for page elements.
+  const panel = document.querySelector(".chart-panel");
+  const isFull = () => document.fullscreenElement === panel || panel.classList.contains("full");
+  function syncFull() {
+    const on = isFull(), btn = $("fullBtn");
+    btn.setAttribute("aria-pressed", String(on));
+    btn.textContent = on ? "⛶ Exit full screen" : "⛶ Full screen";
+    document.body.classList.toggle("no-scroll", panel.classList.contains("full"));
+  }
+  function toggleFull() {
+    if (isFull()) {
+      if (document.fullscreenElement) document.exitFullscreen();
+      panel.classList.remove("full");
+    } else if (panel.requestFullscreen && document.fullscreenEnabled) {
+      panel.requestFullscreen().catch(() => panel.classList.add("full")).finally(syncFull);
+      return;
+    } else {
+      panel.classList.add("full");
+    }
+    syncFull();
+  }
+  $("fullBtn").addEventListener("click", toggleFull);
+  document.addEventListener("fullscreenchange", syncFull);
+  document.addEventListener("keydown", (e) => {
+    const typing = e.target.closest("input, select, textarea, [contenteditable]");
+    if (e.key === "Escape" && panel.classList.contains("full") && !measure.on) {
+      panel.classList.remove("full");
+      syncFull();
+    } else if ((e.key === "f" || e.key === "F") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && state.data) {
+      toggleFull();
+    }
+  });
 
   // ---------- events ----------
   els.form.addEventListener("submit", (e) => {
@@ -642,9 +887,26 @@
     if (state.data) render();
   });
   els.list.addEventListener("click", (e) => {
+    if (e.target.closest("[data-show]")) {
+      els.showMode.value = "all";
+      els.showMode.dispatchEvent(new Event("change"));
+      return;
+    }
     const li = e.target.closest("li[data-id]");
     if (li) selectPattern(Number(li.dataset.id));
   });
+  els.showMode.addEventListener("change", () => {
+    try { localStorage.setItem("showMode", els.showMode.value); } catch (_) {}
+    if (state.data) render();
+  });
+  $("mainPattern").addEventListener("click", (e) => selectPattern(Number(e.currentTarget.dataset.id)));
+  $("fitBtn").addEventListener("click", () => {
+    state.selected = null;
+    if (state.data) render();
+    chart.priceScale("right").applyOptions({ autoScale: true });
+    chart.timeScale().fitContent();
+  });
+  $("shotBtn").addEventListener("click", () => state.data && snapshot());
 
   const root = document.documentElement;
   try { const t = localStorage.getItem("theme"); if (t) root.dataset.theme = t; } catch (_) {}

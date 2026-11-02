@@ -9,6 +9,7 @@
   const EDGE_PP = 2; // colour threshold for the detailed table
   const MIN_SIGNALS = 30, MIN_EDGE = 3;
   // +1 / -1 when a hit rate beats / trails the base rate by more than luck explains, else 0.
+  // The chart page gets the same rule from the server (pattern_verdict in app/backtest.py): change both together.
   function significance(rate, base, n) {
     if (rate == null || base == null || !n || n < MIN_SIGNALS) return 0;
     const p = base / 100, se = Math.sqrt((p * (1 - p)) / n) * 100, edge = rate - base;

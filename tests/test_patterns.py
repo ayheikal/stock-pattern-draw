@@ -338,7 +338,8 @@ def test_pivots_alternate():
     assert all(a != b for a, b in zip(kinds, kinds[1:]))
 
 
-def test_api_analyze(monkeypatch):
+def test_api_analyze(monkeypatch, tmp_path):
+    monkeypatch.setenv("BACKTEST_DIR", str(tmp_path))  # no track record runs saved
     df = make_ohlc(LEAD_UP + [(12, 120), (10, 105), (12, 120), (12, 95), (10, 90)])
     df.index = df.index.tz_localize("America/New_York")
     monkeypatch.setattr(main, "fetch_ohlcv", lambda s, i, p: ("TEST", df, {"longName": "Test Co", "currency": "USD"}))
@@ -349,6 +350,7 @@ def test_api_analyze(monkeypatch):
     assert body["name"] == "Test Co" and len(body["candles"]) == len(df)
     assert body["candles"][0]["time"] == "2024-01-01"
     assert any(p["name"] == "Double Top" for p in body["patterns"])
+    assert body["patternTrack"] is None
     for p in body["patterns"]:
         for ln in p["lines"]:
             assert all(0 <= pt["index"] < len(df) for pt in ln)
@@ -401,6 +403,20 @@ def test_outlook_bearish_after_double_top():
     assert "bearish" in o["bias"].lower()
     assert o["support"] < o["resistance"]
     assert o["range"]["low"] < o["range"]["high"]
+
+
+def test_outlook_names_the_patterns_it_used():
+    from app.outlook import build_outlook
+
+    df = make_ohlc(LEAD_UP + [(12, 120), (10, 105), (12, 120), (12, 95), (6, 92)])
+    patterns, levels = analyze(df)
+    o = build_outlook(df, patterns, levels, "1d")
+    assert patterns[o["mainId"]].name == "Double Top" and o["mainId"] in o["patternIds"]
+    used = [patterns[k] for k in o["patternIds"]]
+    assert all(p.direction != "neutral" for p in used)
+    # old patterns and old candles don't count: only those still in play
+    assert all(p.end >= len(df) - 1 - (20 if p.category != "candle" else 2) for p in used)
+    assert any(p.end < len(df) - 25 for p in patterns) and len(used) < len(patterns)
 
 
 def test_outlook_bullish_in_uptrend():

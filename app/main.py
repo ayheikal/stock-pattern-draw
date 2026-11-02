@@ -146,6 +146,7 @@ def api_analyze(
             "points": [{"time": times[i], "value": _r(v)} for i, v in enumerate(sma) if pd.notna(v)],
         },
         "patterns": out_patterns,
+        "patternTrack": backtest.pattern_track(resolved, interval),
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
         "outlook": build_outlook(df, patterns, levels, interval, float(sma.iloc[-1]) if pd.notna(sma.iloc[-1]) else None),
         "halal": shariah.status(profile.load().shariah, resolved) if meta.get("currency") else None,

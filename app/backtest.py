@@ -8,6 +8,7 @@ CLI:  python -m app.backtest egx 1d
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import threading
@@ -314,6 +315,59 @@ def start(universe: str, interval: str, fee_pct: float = 0.0, min_adtv: float = 
 
     threading.Thread(target=work, daemon=True).start()
     return True
+
+
+MIN_EDGE = 3.0  # percentage points a hit rate must beat the base rate by to count as an edge
+
+
+def pattern_verdict(p: dict) -> str | None:
+    """useful / misleading / unclear / none / few, the same rule as significance() in static/track.js (change both together).
+
+    An edge counts when it's MIN_EDGE+ points and twice the standard error of the base rate, so a few
+    lucky signals don't. None for patterns that point neither way.
+    """
+    if p.get("asExpected") is None or p.get("baseRate") is None:
+        return None
+    if p["n"] < MIN_RELIABLE:
+        return "few"
+    base = p["baseRate"] / 100
+    se = math.sqrt(base * (1 - base) / p["n"]) * 100
+    edge = p["asExpected"] - p["baseRate"]
+    if edge >= MIN_EDGE and edge >= 2 * se:
+        return "useful"
+    if edge <= -MIN_EDGE and edge <= -2 * se:
+        return "misleading"
+    return "unclear" if abs(edge) >= MIN_EDGE else "none"
+
+
+def _is_egx(symbol: str) -> bool:
+    return symbol.startswith("EGX:") or symbol.endswith(".CA")
+
+
+def pattern_track(resolved: str, interval: str) -> dict | None:
+    """Each pattern's record from the largest cached run of the same market (EGX or not) at this interval.
+
+    Keyed "name|direction"; None when no such run has pattern stats yet (runs saved before they existed).
+    """
+    egx, best = _is_egx(resolved), None
+    for p in _dir().glob(f"backtest_*_{interval}.json"):
+        run = json.loads(p.read_text(encoding="utf-8"))
+        per = run.get("perSymbol") or {}
+        if not run.get("patterns") or (2 * sum(_is_egx(k) for k in per) > len(per)) != egx:
+            continue
+        if best is None or run["overall"]["n"] > best["overall"]["n"]:
+            best = run
+    if best is None:
+        return None
+    return {
+        "label": "EGX" if egx else best["universe"],
+        "universe": best["universe"],
+        "symbols": best["symbols"],
+        "since": best.get("since"),
+        "horizon": best["horizon"],
+        "stats": {f"{p['name']}|{p['direction']}": {"n": p["n"], "asExpected": p["asExpected"], "baseRate": p["baseRate"],
+                                                     "verdict": pattern_verdict(p)} for p in best["patterns"]},
+    }
 
 
 RECENT = "1y"  # the look-back shown next to the all-history record

@@ -139,8 +139,9 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
     down_targets: list[float] = []
 
     # --- chart patterns still in play ---
-    main: tuple[float, Pattern] | None = None
-    for p in patterns:
+    main: tuple[float, Pattern, int] | None = None
+    used: list[int] = []  # positions in `patterns` of everything that moved the score
+    for k, p in enumerate(patterns):
         if p.category == "candle":
             continue
         age = n - 1 - p.end
@@ -156,18 +157,21 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
         weight = p.confidence * (1 - age / (RECENT + 1)) * (1.0 if p.confirmed or p.category == "trend" else 0.5)
         weight *= 1.0 if p.category == "trend" else 1.5
         score += sgn * weight
+        if sgn:
+            used.append(k)
         # Classical patterns lead the summary; trendlines only when nothing else is active.
         rank = weight + (0 if p.category == "trend" else 10)
         if sgn and (main is None or rank > main[0]):
-            main = (rank, p)
+            main = (rank, p, k)
         text = f"{p.name} ({status}, {round(p.confidence * 100)}%)"
         if p.target is not None:
             text += f" — target ≈ {_fmt(p.target)}"
         drivers.append({"text": text, "direction": p.direction, "weight": round(weight, 3)})
 
     # --- latest candlestick signals ---
-    for p in patterns:
+    for k, p in enumerate(patterns):
         if p.category == "candle" and p.end >= n - 3 and p.direction != "neutral":
+            used.append(k)
             score += SIGN[p.direction] * 0.25 * p.confidence
             drivers.append({"text": f"{p.name} candle (last {n - p.end} bar{'s' if n - p.end > 1 else ''})",
                             "direction": p.direction, "weight": round(0.25 * p.confidence, 3)})
@@ -267,4 +271,7 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
         "support": round(support, 4),
         "resistance": round(resistance, 4),
         "drivers": drivers[:6],
+        # Positions in the patterns list (the chart's pattern ids): the main signal and everything that counted.
+        "mainId": main[2] if main else None,
+        "patternIds": used,
     }

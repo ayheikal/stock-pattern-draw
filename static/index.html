@@ -69,6 +69,13 @@
     <label><input type="checkbox" data-cat="levels" checked /> <span class="dot lvl"></span>Support / Resistance</label>
     <label><input type="checkbox" data-cat="candle" checked /> <span class="dot cndl"></span>Candlesticks</label>
     <label><input type="checkbox" id="logScale" checked /> Log scale</label>
+    <label title="Key: only what drives the outlook. Recent: the last few months. All: every pattern found.">Show
+      <select id="showMode">
+        <option value="key" selected>Key patterns</option>
+        <option value="recent">Recent</option>
+        <option value="all">All</option>
+      </select>
+    </label>
     <label class="conf">Min confidence <input id="minConf" type="range" min="50" max="95" step="5" value="55" /> <output id="minConfOut">55%</output></label>
   </section>
 
@@ -83,10 +90,19 @@
             <a id="tvLink" class="profile-btn ghost" target="_blank" rel="noopener" hidden>Open in TradingView ↗</a>
           </div>
           <div id="subtitle" class="muted"></div>
+          <button type="button" id="mainPattern" class="main-pattern" title="Zoom the chart to it" hidden></button>
         </div>
         <div id="legend" class="legend muted"></div>
       </div>
       <div id="chart" class="chart">
+        <div class="chart-tools" id="chartTools" hidden>
+          <button type="button" id="measureBtn" aria-pressed="false"
+            title="Measure: click a start and an end point on the chart for the price change, % and time between them. Shift+click works any time; Esc stops.">⟷ Measure</button>
+          <button type="button" id="fitBtn" title="Show the whole history again">⤢ Reset view</button>
+          <button type="button" id="shotBtn" title="Save a picture of the chart">⤓ Snapshot</button>
+          <button type="button" id="fullBtn" aria-pressed="false" title="Fill the screen with the chart (F); Esc to leave">⛶ Full screen</button>
+        </div>
+        <svg id="measureLayer" class="measure-layer" aria-hidden="true"></svg>
         <div id="status" class="status">Type a stock, index or asset code above: <b>AAPL</b>, <b>^GSPC</b>, <b>COMI.CA</b>, <b>EGX33</b>, <b>BTC-USD</b>.</div>
       </div>
     </section>

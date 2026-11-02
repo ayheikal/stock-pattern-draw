@@ -85,7 +85,7 @@ def candle_signals(df: pd.DataFrame, atr: np.ndarray) -> dict[str, np.ndarray]:
             "bull_engulfing": down & bear1 & bull & (o <= c1) & (c >= o1) & (body > b1),
             "bear_engulfing": up & bull1 & bear & (o >= c1) & (c <= o1) & (body > b1),
             # Opens at or beyond the prior close, then closes past the middle of its body without engulfing it.
-            # "At" counts because EGX bars open at the previous close, so they never gap; for the same reason
+            # "At" counts because EGX bars almost always open at the previous close; for the same reason
             # harami and three soldiers / crows may open at the edge of the prior body, not only inside it.
             "piercing": down & bear1 & big1 & bull & (o <= c1) & (c > mid1) & (c < o1),
             "dark_cloud": up & bull1 & big1 & bear & (o >= c1) & (c < mid1) & (c > o1),

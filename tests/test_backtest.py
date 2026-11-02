@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 import pandas as pd
@@ -97,6 +98,33 @@ def test_summarize_patterns():
     assert out["Hammer"]["excess"] == pytest.approx(0.0 - 0.6) and out["Hammer"]["small"]
     assert out["Doji"]["asExpected"] is None and out["Doji"]["baseRate"] is None
     assert backtest.summarize_patterns([{"fwdRet": 1.0}]) == []  # samples saved before patterns were tracked
+
+
+def test_pattern_verdict():
+    v = lambda n, said, base=50.0: backtest.pattern_verdict({"n": n, "asExpected": said, "baseRate": base})
+    assert v(400, 60.0) == "useful" and v(400, 40.0) == "misleading"
+    assert v(40, 60.0) == "unclear"  # 10 points, but within luck for 40 signals
+    assert v(400, 52.0) == "none" and v(29, 90.0) == "few"
+    assert backtest.pattern_verdict({"n": 500, "asExpected": None, "baseRate": None}) is None
+
+
+def test_pattern_track_uses_the_largest_run_of_the_same_market(tmp_path, monkeypatch):
+    monkeypatch.setenv("BACKTEST_DIR", str(tmp_path))
+    pat = lambda name, n: {"name": name, "direction": "bearish", "n": n, "asExpected": 40.0, "baseRate": 50.0}
+    run = lambda uni, syms, n, pats: {"universe": uni, "symbols": len(syms), "since": "2016-01-01", "horizon": "next week",
+                                      "overall": {"n": n}, "perSymbol": dict.fromkeys(syms, {}), "patterns": pats}
+    files = {"egx": run("egx", ["EGX:COMI", "EGX:ETEL", "EGX:EGX30"], 900, [pat("Shooting Star", 400)]),
+             "egx_banks": run("egx_banks", ["EGX:COMI"], 100, [pat("Shooting Star", 20)]),
+             "world": run("world", ["^GSPC", "^NDX"], 500, [pat("Double Top", 60)]),
+             "old": run("old", ["EGX:COMI"], 5000, None)}  # saved before patterns were tracked
+    for k, r in files.items():
+        (tmp_path / f"backtest_{k}_1d.json").write_text(json.dumps(r), encoding="utf-8")
+
+    t = backtest.pattern_track("COMI.CA", "1d")
+    assert (t["universe"], t["label"], t["symbols"]) == ("egx", "EGX", 3)
+    assert t["stats"]["Shooting Star|bearish"] == {"n": 400, "asExpected": 40.0, "baseRate": 50.0, "verdict": "misleading"}
+    assert backtest.pattern_track("AAPL", "1d")["stats"].keys() == {"Double Top|bearish"}
+    assert backtest.pattern_track("COMI.CA", "1wk") is None
 
 
 @pytest.fixture
