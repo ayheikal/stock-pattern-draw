@@ -9,12 +9,13 @@ a USD view, Telegram alerts, and a track record that checks whether the signals 
 Type a stock, index or asset code and get a candlestick chart with classical
 technical-analysis patterns detected and drawn automatically.
 
-- **Reversal:** Head & Shoulders, Inverse H&S, Double/Triple Top & Bottom (neckline + measured-move target)
-- **Continuation:** Ascending/Descending/Symmetrical Triangles, Rising/Falling Wedges, Rectangles, Bull/Bear Flags & Pennants
+- **Reversal:** Head & Shoulders, Inverse H&S, Double/Triple Top & Bottom (neckline + measured-move target), Rounding Bottom / Top (a slow, wide U after a decline, or upside down after a rally, confirmed by a close beyond its rim; target = its depth again), Diamond Top / Bottom (swings widen to a peak and trough near the middle, then narrow again; confirmed by a close through the lower / upper right edge; target = the widest point), Bump-and-Run Top / Bottom (a steady trend that price leaves in a steep bump at least twice as tall as the lead-in's swings, then breaks the lead-in trendline; target = where the bump began)
+- **Continuation:** Ascending/Descending/Symmetrical Triangles, Rising/Falling Wedges, Rectangles, Bull/Bear Flags & Pennants, Cup and Handle (and inverted), Measured Move Up / Down (a leg, a 30–70% pullback, then a close past the leg's end; target = the first leg again from the pullback, so it's shown only once confirmed)
 - **Broadening:** Broadening Formation (megaphone: higher highs and lower lows, breaks either way), Ascending Broadening Wedge (bearish), Descending Broadening Wedge (bullish); target = the pattern's widest point
 - **Trend:** active up/down trendlines, ascending/descending channels
 - **Support / Resistance:** horizontal levels clustered from swing points
-- **Candlesticks:** Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Morning/Evening Star, Three White Soldiers / Black Crows
+- **Gaps:** Breakaway (out of a quiet range to a new high or low), Runaway (mid-trend and still open 5 bars later; target = the move so far again, since it tends to sit halfway), Exhaustion (after a run, filled within 5 bars, so it points the other way), and Island Top / Bottom (a gap with the trend, then a gap back that strands the bars between). EGX bars always open at the previous close, so EGX charts never gap; these show on other markets only.
+- **Candlesticks:** Doji, Dragonfly / Gravestone Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Piercing Line / Dark Cloud Cover, Tweezer Top / Bottom, Morning/Evening Star, Three Inside / Outside Up & Down, Three White Soldiers / Black Crows, Rising / Falling Three Methods. Since EGX bars open at the previous close, a candle may open *at* the prior close or body edge where the textbook says beyond or inside it; Kicker and Abandoned Baby are left out because they need a gap.
 - **Outlook:** a plain-language expectation for the next period (next week on daily bars, next month on weekly, …): overall bias, the main signal, bullish/bearish scenarios with trigger levels and targets, and an ATR-based typical range
 - **Trade plan:** entry, target and stop-loss with reward/risk. The stop sits just beyond the main pattern's last swing (its invalidation point), else beyond the nearest support/resistance, else 2 × ATR. A neutral outlook gives two conditional breakout/breakdown plans instead. Target and stop are drawn on the chart.
 
@@ -240,7 +241,9 @@ Tag any stock yourself from its chart (*Mark halal* / *Mark not halal*); your ta
 outlook over up to 10 years of history: at every sample bar it rebuilds the outlook from the previous 250 bars
 only (no look-ahead), then records what price did over the outlook horizon and whether the trade plan hit its
 target or its stop first. Results are grouped by bias (Bullish … Bearish) and compared with a baseline of all
-periods, overall and per symbol. Your profile cards show the per-symbol record for the chart's current reading, over all history and over the last year (from the newest run).
+periods, overall and per symbol. **By pattern** does the same for each chart pattern and candle on its own: every
+completed one (forming patterns, trendlines and channels aren't counted) is measured from the first sample at or after it
+finished, and judged on how often price then moved its way against the base rate. Your profile cards show the per-symbol record for the chart's current reading, over all history and over the last year (from the newest run).
 
 Run it from the page (Run button, ~30 s for the EGX list), or from the command line:
 
@@ -313,8 +316,9 @@ app/
   outlook.py           next-period expectation built from patterns, trend, RSI and levels
   pivots.py            ATR + swing-point (zigzag) detection shared by all detectors
   patterns/
-    reversal.py        H&S, double/triple tops & bottoms
-    continuation.py    triangles, wedges, rectangles, channels, flags, pennants
+    reversal.py        H&S, double/triple tops & bottoms, rounding tops & bottoms, diamonds, bump-and-run
+    continuation.py    triangles, wedges, rectangles, channels, flags, pennants, cups, measured moves
+    gaps.py            breakaway, runaway and exhaustion gaps, island reversals
     levels.py          S/R clustering, trendlines
     candles.py         candlestick rules (only in trend context)
     __init__.py        analyze(): runs all detectors + overlap suppression

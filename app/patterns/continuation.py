@@ -1,11 +1,11 @@
-"""Continuation patterns: triangles, wedges, rectangles, channels, flags, pennants and cups."""
+"""Continuation patterns: triangles, wedges, rectangles, channels, flags, pennants, cups and measured moves."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from ..pivots import Pivot
-from .common import project, segment, target_segment
+from .common import bowl_curve, find_bowl, first_break, project, segment, target_segment
 from .models import Pattern
 
 FLAT = 0.8  # total slope over the pattern below this many ATRs counts as flat
@@ -232,16 +232,54 @@ def detect_flags(df: pd.DataFrame, atr: np.ndarray) -> list[Pattern]:
     return _flags_one_side(high, low, close, atr, bull=True) + _flags_one_side(-low, -high, -close, atr, bull=False)
 
 
+def _measured_one_side(piv: list[Pivot], low, close, atr, up: bool) -> list[Pattern]:
+    """Measured move up: a leg up (A to B), a pullback of 30-70% of it (to C), then a close back above B,
+    which projects a second leg as long as the first from C. Moves down are found by mirroring prices."""
+    n = len(close)
+    sgn = 1 if up else -1
+    out = []
+    for A, B, C in zip(piv, piv[1:], piv[2:]):
+        if A.kind != "L":
+            continue
+        a = atr[B.idx]
+        leg, legw = B.price - A.price, B.idx - A.idx
+        retr = (B.price - C.price) / leg if leg > 0 else 0.0
+        if leg < 4 * a or not 0.3 <= retr <= 0.7 or not 3 <= C.idx - B.idx <= 1.5 * legw:
+            continue
+        # A starts the move: nothing lower in the stretch before it.
+        if low[max(0, A.idx - legw) : A.idx].min(initial=np.inf) < A.price - 0.25 * a:
+            continue
+        # Only once price clears B: until then it's just a pullback.
+        brk = first_break(close, C.idx + 1, C.idx + legw + 1, 0.0, B.price, below=False)
+        if brk is None or low[C.idx + 1 : brk + 1].min() < C.price:
+            continue
+        target = project(C.price * sgn, leg, up)
+        pts = [(p.idx, p.price * sgn) for p in (A, B, C)]
+        out.append(
+            Pattern(
+                name="Measured Move Up" if up else "Measured Move Down",
+                category="continuation",
+                direction="bullish" if up else "bearish",
+                start=A.idx,
+                end=brk,
+                confidence=round(0.6 + 0.15 * (1 - abs(retr - 0.5) / 0.2), 2),
+                points=pts,
+                lines=[pts + [(brk, close[brk] * sgn)], target_segment(brk, float(target), n)],
+                target=round(float(target), 4),
+                confirmed=True,
+                label="MM" if up else "MM D",
+            )
+        )
+    return out
+
+
+def detect_measured_moves(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> list[Pattern]:
+    low, close = df["Low"].to_numpy(), df["Close"].to_numpy()
+    flipped = [Pivot(p.idx, -p.price, "L" if p.kind == "H" else "H") for p in piv]
+    return _measured_one_side(piv, low, close, atr, up=True) + _measured_one_side(flipped, -df["High"].to_numpy(), -close, atr, up=False)
+
+
 CUP_MIN_BARS, CUP_MAX_BARS = 15, 250
-
-
-def _cup_curve(left: int, bottom: int, right: int, hl: float, hr: float, lo: float, sgn: int) -> list[tuple[int, float]]:
-    """A U through both rims and the cup's low: a half-parabola on each side of the bottom."""
-    pts = []
-    for i in sorted({*np.linspace(left, bottom, 8).round().astype(int), *np.linspace(bottom, right, 8).round().astype(int)}):
-        rim, half = (hl, bottom - left) if i <= bottom else (hr, right - bottom)
-        pts.append((int(i), (lo + (rim - lo) * ((i - bottom) / max(half, 1)) ** 2) * sgn))
-    return pts
 
 
 def _cups_one_side(piv: list[Pivot], high, low, close, atr, bull: bool) -> list[Pattern]:
@@ -255,35 +293,15 @@ def _cups_one_side(piv: list[Pivot], high, low, close, atr, bull: bool) -> list[
         left, hl = p.idx, high[p.idx]
         a = atr[left]
         tol = max(a, 0.02 * abs(hl))
-        # Right rim: the first bar that climbs back to the left rim after a real descent.
-        dropped = np.flatnonzero(low[left + 1 : left + CUP_MAX_BARS] < hl - 3 * a)
-        if not len(dropped):
+        bowl = find_bowl(high, low, atr, left, CUP_MIN_BARS, CUP_MAX_BARS)
+        if bowl is None:
             continue
-        d = left + 1 + int(dropped[0])
-        back = np.flatnonzero(high[d : left + CUP_MAX_BARS] >= hl - tol)
-        if not len(back):
-            continue
-        right = d + int(back[0])
-        while right + 1 < n and high[right] <= high[right + 1] <= hl + tol:
-            right += 1
+        right, bottom, depth, rounded, pos = bowl
         width = right - left
-        if width < CUP_MIN_BARS or high[left + 1 : right].max() > hl + tol:
-            continue
-        # The left rim must top the advance leading into it.
+        # The left rim must top the advance leading into it (after a decline it's a rounding bottom).
         if high[max(0, left - width // 2) : left].max(initial=-np.inf) > hl + 0.25 * a:
             continue
-
-        hr = high[right]
-        bottom = left + int(np.argmin(low[left : right + 1]))
-        lo = low[bottom]
-        depth = (hl + hr) / 2 - lo
-        if depth < 3 * a or depth > 0.5 * abs(hl):
-            continue
-        # Rounded U, not a V: a parabola spends ~58% of its width in the bottom third, a V only ~33%.
-        rounded = float(np.mean(low[left : right + 1] <= lo + depth / 3))
-        pos = (bottom - left) / width
-        if rounded < 0.4 or not 0.2 <= pos <= 0.8:
-            continue
+        hr, lo = high[right], low[bottom]
 
         # Handle: a shallow pullback in the upper half of the cup, resolved by a close above the right rim.
         hmax = max(5, width // 3)
@@ -319,7 +337,7 @@ def _cups_one_side(piv: list[Pivot], high, low, close, atr, bull: bool) -> list[
                 confidence=round(min(conf, 0.99), 2),
                 points=[(left, hl * sgn), (bottom, lo * sgn), (right, hr * sgn), (h_idx, h_lo * sgn)],
                 lines=[
-                    _cup_curve(left, bottom, right, hl, hr, lo, sgn),
+                    bowl_curve(left, bottom, right, hl, hr, lo, sgn),
                     [(right, hr * sgn), (h_idx, h_lo * sgn), (end, close[end] * sgn)],
                     target_segment(end, float(target), n),
                 ],

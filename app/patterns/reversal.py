@@ -1,11 +1,11 @@
-"""Reversal patterns: head & shoulders, double and triple tops/bottoms."""
+"""Reversal patterns: head & shoulders, double and triple tops/bottoms, rounding tops/bottoms, diamonds, bump-and-run."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
 from ..pivots import Pivot
-from .common import first_break, line_through, project, segment, target_segment
+from .common import bowl_curve, find_bowl, first_break, line_through, project, segment, target_segment
 from .models import Pattern
 
 
@@ -146,11 +146,205 @@ def _multi_top(piv: list[Pivot], close: np.ndarray, ext: np.ndarray, atr: np.nda
     return out
 
 
+ROUND_MIN_BARS, ROUND_MAX_BARS = 30, 250
+
+
+def _rounding(piv: list[Pivot], high: np.ndarray, low: np.ndarray, close: np.ndarray, atr: np.ndarray, bottom: bool) -> list[Pattern]:
+    """Rounding bottom (saucer): a slow, wide U after a decline, confirmed by a close above its left rim.
+
+    Tops are found by passing mirrored prices and pivots. Unlike a cup, there's no handle, and price
+    comes down into the left rim instead of rallying up to it.
+    """
+    n = len(close)
+    sgn = 1 if bottom else -1
+    out = []
+    for p in piv:
+        if p.kind != "H":
+            continue
+        left, hl, a = p.idx, high[p.idx], atr[p.idx]
+        bowl = find_bowl(high, low, atr, left, ROUND_MIN_BARS, ROUND_MAX_BARS)
+        if bowl is None:
+            continue
+        right, low_idx, depth, rounded, pos = bowl
+        width = right - left
+        if rounded < 0.5:  # smoother than a cup has to be
+            continue
+        if high[max(0, left - width // 2) : left].max(initial=-np.inf) < hl + a:
+            continue  # no decline into it: a base, not a reversal
+        horizon = right + max(5, width // 4)
+        brk = first_break(close, right, horizon, 0.0, hl, below=False)
+        if brk is None and horizon < n:
+            continue  # never cleared the rim: the pattern failed
+        end = brk if brk is not None else n - 1
+        hr, lo = high[right], low[low_idx]
+        target = project(hl * sgn, depth, up=bottom)
+        conf = 0.5 + 0.15 * min(1.0, (rounded - 0.5) / 0.2) + 0.1 * (1 - abs(pos - 0.5) / 0.3) + (0.12 if brk is not None else 0)
+        out.append(
+            Pattern(
+                name="Rounding Bottom" if bottom else "Rounding Top",
+                category="reversal",
+                direction="bullish" if bottom else "bearish",
+                start=left,
+                end=end,
+                confidence=round(min(conf, 0.99), 2),
+                points=[(left, hl * sgn), (low_idx, lo * sgn), (right, hr * sgn)],
+                lines=[bowl_curve(left, low_idx, right, hl, hr, lo, sgn), target_segment(end, float(target), n)],
+                neckline=[(left, hl * sgn), (end, hl * sgn)],
+                target=round(float(target), 4),
+                confirmed=brk is not None,
+                label="RB" if bottom else "RT",
+            )
+        )
+    return out
+
+
+def _steps(prices: list[float], up: bool) -> bool:
+    return all((b > a) if up else (b < a) for a, b in zip(prices, prices[1:]))
+
+
+def _diamond(piv: list[Pivot], close: np.ndarray, hi: np.ndarray, lo: np.ndarray, atr: np.ndarray, top: bool) -> list[Pattern]:
+    """Diamond top: after a rally the swings widen to a peak and trough near the middle, then narrow again;
+    confirmed by a close below the lower right edge. Bottoms are found by passing mirrored prices and pivots."""
+    n = len(close)
+    sgn = 1 if top else -1
+    c = close * sgn
+    out = []
+    for k in range(len(piv)):
+        for m in range(6, 11):
+            seq = piv[k : k + m]
+            if len(seq) < m:
+                break
+            hs = [p for p in seq if p.kind == "H"]
+            ls = [p for p in seq if p.kind == "L"]
+            peak, trough = max(hs, key=lambda p: p.price), min(ls, key=lambda p: p.price)
+            lh, rh = [p for p in hs if p.idx < peak.idx], [p for p in hs if p.idx > peak.idx]
+            ll, rl = [p for p in ls if p.idx < trough.idx], [p for p in ls if p.idx > trough.idx]
+            if not (lh and rh and ll and rl):
+                continue
+            start, last = seq[0].idx, seq[-1].idx
+            span = last - start
+            a = float(atr[start : last + 1].mean())
+            width = peak.price - trough.price
+            # The widest point sits near the middle, and both ends are much narrower.
+            mid = ((peak.idx + trough.idx) / 2 - start) / span
+            if abs(peak.idx - trough.idx) > 0.35 * span or not 0.25 <= mid <= 0.75 or width < 3 * a:
+                continue
+            if max(hs[0].price - ls[0].price, hs[-1].price - ls[-1].price) > 0.6 * width:
+                continue
+            # Widening into the widest point, narrowing after it.
+            if not (_steps([p.price for p in lh] + [peak.price], True) and _steps([p.price for p in ll] + [trough.price], False)
+                    and _steps([peak.price] + [p.price for p in rh], False) and _steps([trough.price] + [p.price for p in rl], True)):
+                continue
+            if hi[start : last + 1].max() > peak.price + 0.25 * a or lo[start : last + 1].min() < trough.price - 0.25 * a:
+                continue
+            # A top comes after a rally: price rose into it from below its low.
+            if lo[max(0, start - span) : start].min(initial=np.inf) >= trough.price:
+                continue
+            if not _is_prior_extreme(hi, start, peak.price, span, 0.25 * a):
+                continue
+
+            um, ub = line_through((peak.idx, peak.price), (rh[-1].idx, rh[-1].price))
+            lm, lb = line_through((trough.idx, trough.price), (rl[-1].idx, rl[-1].price))
+            horizon = min(n, last + max(10, span // 2))
+            brk, failed = None, False
+            for i in range(last + 1, horizon):
+                if c[i] < lm * i + lb - 0.1 * a:
+                    brk = i
+                    break
+                if c[i] > um * i + ub + 0.1 * a:
+                    failed = True  # broke out the wrong way
+                    break
+            if failed or (brk is None and horizon < n):
+                continue
+            end = brk if brk is not None else n - 1
+            target = project((lm * end + lb) * sgn, width, up=not top)
+            conf = 0.55 + 0.1 * min(1.0, (m - 6) / 3) + 0.15 * (1 - abs(mid - 0.5) / 0.25) + (0.12 if brk is not None else 0)
+            pt = lambda p: (p.idx, p.price * sgn)
+            out.append(
+                Pattern(
+                    name="Diamond Top" if top else "Diamond Bottom",
+                    category="reversal",
+                    direction="bearish" if top else "bullish",
+                    start=start,
+                    end=end,
+                    confidence=round(min(conf, 0.99), 2),
+                    points=[pt(p) for p in seq],
+                    lines=[[pt(lh[0]), pt(peak)], segment(um * sgn, ub * sgn, peak.idx, end, n),
+                           [pt(ll[0]), pt(trough)], segment(lm * sgn, lb * sgn, trough.idx, end, n),
+                           target_segment(end, float(target), n)],
+                    target=round(float(target), 4),
+                    confirmed=brk is not None,
+                    label="Dia" if top else "Dia B",
+                )
+            )
+    return out
+
+
+def _bump_and_run(piv: list[Pivot], close: np.ndarray, hi: np.ndarray, lo: np.ndarray, atr: np.ndarray, top: bool) -> list[Pattern]:
+    """Bump-and-run top: a steady uptrend (the lead-in) that price leaves in a steep bump at least twice
+    as tall as the lead-in's swings, then falls back through the lead-in trendline. Price tends to return
+    to where the bump began. Bottoms are found by passing mirrored prices and pivots."""
+    n = len(close)
+    sgn = 1 if top else -1
+    c = close * sgn
+    lows = [p for p in piv if p.kind == "L"]
+    out = []
+    for p1, p2 in zip(lows, lows[1:]):
+        if p2.idx - p1.idx < 10:
+            continue
+        m, b = line_through((p1.idx, p1.price), (p2.idx, p2.price))
+        a = atr[p2.idx]
+        if m <= 0:
+            continue
+        xs = np.arange(p1.idx, p2.idx + 1)
+        if (lo[xs] < m * xs + b - 0.25 * a).any():
+            continue  # the lead-in trendline must hold
+        lead_h = float((hi[xs] - (m * xs + b)).max())
+        brk = first_break(c, p2.idx + 1, n, m, b, below=True)
+        seg = np.arange(p2.idx, brk if brk is not None else n)
+        if len(seg) < 5:
+            continue
+        dist = hi[seg] - (m * seg + b)
+        peak, bump_h = int(seg[np.argmax(dist)]), float(dist.max())
+        if bump_h < max(2 * lead_h, 4 * a):
+            continue
+        if (hi[peak] - p2.price) / max(peak - p2.idx, 1) < 1.5 * m:
+            continue  # the bump must climb faster than the lead-in
+        if brk is None and (n - 1 - peak < 3 or c[n - 1] - (m * (n - 1) + b) > 0.5 * bump_h):
+            continue  # still running, or hasn't rolled over halfway back to the line
+        end = brk if brk is not None else n - 1
+        conf = 0.55 + 0.15 * min(1.0, (bump_h / max(lead_h, a) - 2) / 2) + (0.12 if brk is not None else 0)
+        out.append(
+            Pattern(
+                name="Bump-and-Run Top" if top else "Bump-and-Run Bottom",
+                category="reversal",
+                direction="bearish" if top else "bullish",
+                start=p1.idx,
+                end=end,
+                confidence=round(min(conf, 0.99), 2),
+                points=[(p1.idx, p1.price * sgn), (p2.idx, p2.price * sgn), (peak, hi[peak] * sgn)],
+                lines=[segment(m * sgn, b * sgn, p1.idx, end, n),
+                       [(p2.idx, p2.price * sgn), (peak, hi[peak] * sgn), (end, close[end])],
+                       target_segment(end, p2.price * sgn, n)],
+                target=round(float(p2.price * sgn), 4),
+                confirmed=brk is not None,
+                label="BARR" if top else "BARR B",
+            )
+        )
+    return out
+
+
 def detect_reversals(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> list[Pattern]:
     close = df["Close"].to_numpy()
     high, neg_low = df["High"].to_numpy(), -df["Low"].to_numpy()
     flipped = _flip(piv)
     out: list[Pattern] = []
+    out += _rounding(piv, high, df["Low"].to_numpy(), close, atr, bottom=True)
+    out += _rounding(flipped, neg_low, -high, -close, atr, bottom=False)
+    low = df["Low"].to_numpy()
+    for detect in (_diamond, _bump_and_run):
+        out += detect(piv, close, high, low, atr, top=True)
+        out += detect(flipped, close, neg_low, -high, atr, top=False)
     out += _head_shoulders(piv, close, high, atr, top=True)
     out += _head_shoulders(flipped, close, neg_low, atr, top=False)
     for count in (3, 2):

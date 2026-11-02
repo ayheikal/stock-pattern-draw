@@ -135,6 +135,36 @@
     return { key: "none", text: `${said}, about the same as ${normal}. The signal doesn't help here.` };
   }
 
+  // Same verdicts as for symbols, judged on how often price moved the way the pattern points.
+  function patternVerdict(p) {
+    if (p.asExpected == null || p.baseRate == null) return null; // neutral patterns point nowhere
+    if (p.n < MIN_SIGNALS) return "few";
+    const sig = significance(p.asExpected, p.baseRate, p.n);
+    return sig > 0 ? "useful" : sig < 0 ? "misleading" : Math.abs(p.asExpected - p.baseRate) >= MIN_EDGE ? "unclear" : "none";
+  }
+
+  function renderPatterns(r) {
+    const list = r.patterns;
+    $("patternsMissing").hidden = !!list;
+    $("patternsWrap").hidden = !list;
+    if (!list) return;
+    $("patternNote").textContent = `price change over the ${r.horizon}`;
+    const rows = list.map((p) => ({ ...p, v: patternVerdict(p) }));
+    const order = (v) => (v ? VERDICTS[v].order : 5);
+    rows.sort((a, b) => order(a.v) - order(b.v) || b.n - a.n);
+    const edge = (p) => (p.asExpected == null || p.baseRate == null ? null : p.asExpected - p.baseRate);
+    $("patterns").querySelector("tbody").innerHTML = rows.length ? rows.map((p) => `
+      <tr class="${p.small ? "small-n" : ""}">
+        <td>${escapeHtml(p.name)} <span class="tag ${p.direction}">${p.direction}</span></td>
+        <td class="num">${p.n.toLocaleString()}</td>
+        <td class="num">${share(p.asExpected)}</td>
+        <td class="num">${share(p.baseRate)}</td>
+        <td class="num ${p.v === "useful" ? "up" : p.v === "misleading" ? "down" : p.v === "unclear" ? "unproven" : ""}">${edge(p) == null ? "—" : `${edge(p) > 0 ? "+" : ""}${edge(p).toFixed(1)} pts`}</td>
+        <td class="num ${cls(p.avgRet)}">${pct(p.avgRet)}</td>
+        <td>${p.v ? `<span class="verdict-pill ${p.v}">${VERDICTS[p.v].label}</span>` : '<span class="muted small">points neither way</span>'}</td>
+      </tr>`).join("") : '<tr><td colspan="7" class="muted">No completed patterns in this period.</td></tr>';
+  }
+
   function renderSimple(rows) {
     const list = rows.map((s) => ({ ...s, v: symbolVerdict(s) }));
     list.sort((a, b) => VERDICTS[a.v.key].order - VERDICTS[b.v.key].order || Math.abs(b.bullEdge ?? 0) - Math.abs(a.bullEdge ?? 0));
@@ -184,6 +214,7 @@
       <tr class="baseline"><td>Any week (baseline)</td><td class="num">${o.n.toLocaleString()}</td><td class="num ${cls(o.baseline)}">${pct(o.baseline)}</td>
         <td class="num">—</td><td class="num" title="Share of all samples that rose">${share(o.upShare)} rose</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>`;
 
+    renderPatterns(r);
     const rows = symbolRows(r);
     renderSimple(rows);
     const k = state.sortKey;

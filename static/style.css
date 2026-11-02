@@ -209,6 +209,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .dot.cont { background: var(--neutral); }
 .dot.trend { background: var(--accent); }
 .dot.lvl { background: var(--support); }
+.dot.gap { background: var(--resistance); }
 .dot.cndl { background: var(--bull); }
 
 .layout {

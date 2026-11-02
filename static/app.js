@@ -111,7 +111,7 @@
       if (v > 0) pts = [...pts, { index: lastIdx, time: cs[lastIdx].time, value: v }];
     }
     addLine(pts, color, width, LightweightCharts.LineStyle.Solid, live
-      ? { lastValueVisible: true, title: /Cup/.test(p.name) ? "Rim" : "Neckline" }
+      ? { lastValueVisible: true, title: /Cup|Rounding/.test(p.name) ? "Rim" : "Neckline" }
       : {});
   }
 
@@ -148,7 +148,8 @@
       const c = dim ? color + "55" : color;
       p.lines.forEach((ln, i) => {
         const isTarget = p.target != null && i === p.lines.length - 1;
-        addLine(ln, c, isTarget ? 1 : w, isTarget ? Dotted : Solid);
+        // A gap's two lines mark the empty zone it left, so they're dashed rather than drawn like a pattern's edges.
+        addLine(ln, c, isTarget ? 1 : w, isTarget ? Dotted : p.category === "gap" ? Dashed : Solid);
       });
       if (p.neckline) {
         const live = sel || (state.selected == null && p.end >= state.data.candles.length - 1 - NECK_LIVE_BARS);
@@ -192,7 +193,7 @@
     const item = (p) => `
       <li data-id="${p.id}" class="${p.direction}${state.selected === p.id ? " selected" : ""}">
         <div class="row"><span class="name">${escapeHtml(p.name)}</span><span class="tag ${p.direction}">${p.direction}</span></div>
-        <div class="meta">${timeLabel(p.startTime)} → ${timeLabel(p.endTime)} · ${p.category}${p.confirmed ? " · confirmed" : p.category === "reversal" || p.category === "continuation" ? " · forming" : ""}</div>
+        <div class="meta">${timeLabel(p.startTime)} → ${timeLabel(p.endTime)} · ${p.category}${p.confirmed ? " · confirmed" : ["reversal", "continuation", "gap"].includes(p.category) ? " · forming" : ""}</div>
         ${p.target != null ? `<div class="meta">Target ≈ ${fmt(p.target)}</div>` : ""}
         ${p.category !== "candle" ? `<div class="confbar" title="Confidence ${Math.round(p.confidence * 100)}%"><span style="width:${p.confidence * 100}%"></span></div>` : ""}
       </li>`;

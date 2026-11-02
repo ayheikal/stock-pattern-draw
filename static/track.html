@@ -68,6 +68,27 @@
         </table>
       </div>
 
+      <h2>By pattern <span class="muted small" id="patternNote"></span></h2>
+      <p class="muted small legend-line">Each chart pattern and candle on its own: after it completed, did price move the way it points
+        more often than in a normal week? Forming patterns, trendlines and channels aren't counted.</p>
+      <p id="patternsMissing" class="hint" hidden>This result was saved before patterns were tracked. Press <b>Re-run</b> to see them.</p>
+      <div class="table-wrap" id="patternsWrap">
+        <table id="patterns" class="data">
+          <thead>
+            <tr>
+              <th>Pattern</th>
+              <th class="num">Signals</th>
+              <th class="num" title="Share of signals where price then moved the way the pattern points">Moved as said</th>
+              <th class="num" title="Share of all weeks that moved that way">Any week</th>
+              <th class="num" title="Moved as said minus any week (percentage points)">Edge</th>
+              <th class="num" title="Average price change over the outlook horizon">Avg change</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <h2>By symbol <button id="toggleDetails" type="button" class="link-btn">Show details</button></h2>
       <p class="muted small legend-line">Should you trust the chart's <b>bullish</b> signals (the ones you'd buy on) for each stock?
         <span class="verdict-pill useful">Useful</span> it rose clearly more often than in a normal week ·

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import backtest, main, profile, screener
+from app.patterns import Pattern
 from test_patterns import make_ohlc
 
 UPTREND = [(0, 50.0), (80, 70), (20, 64), (80, 90), (20, 84), (80, 110), (20, 100), (80, 130)]
@@ -55,6 +56,7 @@ def test_replay_samples_are_spaced_and_complete():
     assert len(rows) == len(range(backtest.WINDOW - 1, len(df) - 4 * h, h))
     assert all(r["bias"] in backtest.BUCKETS for r in rows)
     assert any(r["outcome"] for r in rows)
+    assert all(isinstance(r["patterns"], list) for r in rows)
 
 
 def test_summarize_samples():
@@ -70,6 +72,31 @@ def test_summarize_samples():
     assert b["Bullish"]["avgR"] == pytest.approx(0.433, abs=1e-3) and b["Bullish"]["small"]
     assert b["Bearish"]["asExpected"] == 50.0 and b["Neutral"]["asExpected"] is None
     assert b["Mildly bullish"]["n"] == 0 and b["Mildly bullish"]["avgRet"] is None
+
+
+def test_completed_counts_finished_patterns_once():
+    P = lambda name, cat, d, end, confirmed=True: Pattern(name=name, category=cat, direction=d, start=0, end=end,
+                                                          confidence=0.7, confirmed=confirmed)
+    pats = [P("Double Top", "reversal", "bearish", 97), P("Double Top", "reversal", "bearish", 98),
+            P("Ascending Triangle", "continuation", "bullish", 99, confirmed=False),  # forming: skipped
+            P("Uptrend Line", "trend", "bullish", 99),  # trend: skipped
+            P("Hammer", "candle", "bullish", 99, confirmed=False),  # candles never carry `confirmed`
+            P("Runaway Gap", "gap", "bullish", 90)]  # finished before the last 5 bars
+    assert backtest.completed(pats, 100, 5) == [["Double Top", "bearish"], ["Hammer", "bullish"]]
+
+
+def test_summarize_patterns():
+    s = lambda ret, *pats: {"bias": "Neutral", "fwdRet": ret, "outcome": None, "R": None, "patterns": [list(p) for p in pats]}
+    dt, ham, doji = ("Double Top", "bearish"), ("Hammer", "bullish"), ("Doji", "neutral")
+    samples = [s(-2.0, dt), s(-1.0, dt, ham), s(3.0, dt), s(1.0, ham, doji), s(2.0)]
+    out = {p["name"]: p for p in backtest.summarize_patterns(samples)}
+    assert [p["name"] for p in backtest.summarize_patterns(samples)] == ["Double Top", "Hammer", "Doji"]
+    assert out["Double Top"]["n"] == 3 and out["Double Top"]["avgRet"] == 0.0
+    assert out["Double Top"]["asExpected"] == pytest.approx(66.7) and out["Double Top"]["baseRate"] == 40.0  # 3 of 5 rose
+    assert out["Hammer"]["asExpected"] == 50.0 and out["Hammer"]["baseRate"] == 60.0
+    assert out["Hammer"]["excess"] == pytest.approx(0.0 - 0.6) and out["Hammer"]["small"]
+    assert out["Doji"]["asExpected"] is None and out["Doji"]["baseRate"] is None
+    assert backtest.summarize_patterns([{"fwdRet": 1.0}]) == []  # samples saved before patterns were tracked
 
 
 @pytest.fixture
@@ -94,6 +121,8 @@ def test_backtest_api_run_and_profile_track(client, monkeypatch):
     res = body["result"]
     assert res["symbols"] == 2 and set(res["perSymbol"]) == {"AAA.X", "BBB.X"}
     assert sum(b["n"] for b in res["overall"]["buckets"]) == res["overall"]["n"]
+    assert isinstance(res["patterns"], list) and all(0 < p["n"] <= res["overall"]["n"] for p in res["patterns"])
+    assert all("patterns" in part for part in backtest.load("tiny", "1d")["ranges"].values())
 
     track = backtest.track_for("AAA.X", "1d")
     live_bias = next(b["bias"] for b in track["buckets"] if b["n"])
