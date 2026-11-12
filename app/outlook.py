@@ -142,8 +142,6 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
     main: tuple[float, Pattern, int] | None = None
     used: list[int] = []  # positions in `patterns` of everything that moved the score
     for k, p in enumerate(patterns):
-        if p.category == "candle":
-            continue
         age = n - 1 - p.end
         if age > (5 if p.category == "trend" else RECENT):
             continue
@@ -167,14 +165,6 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
         if p.target is not None:
             text += f" — target ≈ {_fmt(p.target)}"
         drivers.append({"text": text, "direction": p.direction, "weight": round(weight, 3)})
-
-    # --- latest candlestick signals ---
-    for k, p in enumerate(patterns):
-        if p.category == "candle" and p.end >= n - 3 and p.direction != "neutral":
-            used.append(k)
-            score += SIGN[p.direction] * 0.25 * p.confidence
-            drivers.append({"text": f"{p.name} candle (last {n - p.end} bar{'s' if n - p.end > 1 else ''})",
-                            "direction": p.direction, "weight": round(0.25 * p.confidence, 3)})
 
     # --- trend and momentum ---
     trend_note, trend = "", 0

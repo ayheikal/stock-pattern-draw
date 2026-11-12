@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.patterns import analyze
-from app.patterns.candles import candle_signals
 from app.pivots import atr, find_pivots
 
 
@@ -183,66 +182,6 @@ def test_support_resistance_levels():
     prices = [lv.price for lv in levels]
     assert any(abs(p - 120) < 2 for p in prices)
     assert any(abs(p - 100) < 2 for p in prices)
-
-
-def _candles(rows: list[tuple[float, float, float, float]]) -> pd.DataFrame:
-    """Declining lead-in followed by explicitly specified (o, h, l, c) candles."""
-    lead = [(100 - 2 * i, 100.5 - 2 * i, 97.5 - 2 * i, 98 - 2 * i) for i in range(20)]
-    o, h, l, c = zip(*(lead + rows))
-    return pd.DataFrame({"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1.0}, index=pd.bdate_range("2024-01-01", periods=len(o)))
-
-
-def test_candlestick_signals():
-    hammer = _candles([(60.0, 60.8, 55.0, 60.7)])
-    assert candle_signals(hammer, atr(hammer))["hammer"][-1]
-
-    engulf = _candles([(61.0, 61.2, 58.5, 59.0), (58.5, 62.5, 58.2, 62.0)])
-    assert candle_signals(engulf, atr(engulf))["bull_engulfing"][-1]
-
-
-def test_piercing_line_and_dark_cloud_cover():
-    # opens below the big red candle's close, closes past its middle but not past its open
-    pierce = _candles([(61.0, 61.2, 57.0, 57.5), (56.5, 60.0, 56.2, 59.8)])
-    sig = candle_signals(pierce, atr(pierce))
-    assert sig["piercing"][-1] and not sig["bull_engulfing"][-1]
-    shallow = _candles([(61.0, 61.2, 57.0, 57.5), (56.5, 59.0, 56.2, 58.8)])  # stops short of the middle
-    assert not candle_signals(shallow, atr(shallow))["piercing"][-1]
-    no_gap = _candles([(61.0, 61.2, 57.0, 57.5), (57.5, 60.0, 57.2, 59.8)])  # EGX bars open at the prior close
-    assert candle_signals(no_gap, atr(no_gap))["piercing"][-1]
-
-    cloud = mirror(_candles([(61.0, 61.2, 57.0, 57.5), (56.5, 60.0, 56.2, 59.8)]))
-    sig = candle_signals(cloud, atr(cloud))
-    assert sig["dark_cloud"][-1] and not sig["bear_engulfing"][-1]
-    p = [p for p in analyze(cloud)[0] if p.category == "candle"][-1]
-    assert (p.name, p.direction, p.start, p.end) == ("Dark Cloud Cover", "bearish", len(cloud) - 2, len(cloud) - 1)
-
-
-@pytest.mark.parametrize(
-    "rows, after_decline, after_rally",
-    [
-        # every candle opens at the prior close, as EGX bars do
-        ([(60.0, 60.1, 55.0, 59.95)], "Dragonfly Doji", "Gravestone Doji"),  # a hair up would make it a harami
-        ([(60.0, 60.2, 57.0, 57.5), (57.5, 59.0, 57.05, 58.5)], "Tweezer Bottom", "Tweezer Top"),
-        ([(60.0, 61.2, 57.0, 57.5), (57.5, 58.7, 57.45, 58.6)], "Bullish Harami", "Bearish Harami"),
-        ([(60.0, 61.2, 57.0, 57.5), (57.5, 58.9, 57.3, 58.7), (58.7, 61.8, 58.5, 61.5)], "Three Inside Up", "Three Inside Down"),
-        ([(60.0, 60.2, 58.0, 58.5), (58.5, 61.0, 58.2, 60.5), (60.5, 62.5, 60.3, 62.2)], "Three Outside Up", "Three Outside Down"),
-        # three methods continue the trend, so after a decline it's the bearish one
-        ([(60.0, 60.2, 55.8, 56.0), (56.0, 57.2, 55.9, 57.0), (57.0, 57.8, 56.6, 57.5), (57.5, 58.3, 57.0, 58.0),
-          (58.0, 58.1, 54.5, 54.8)], "Falling Three Methods", "Rising Three Methods"),
-    ],
-)
-def test_more_candlesticks(rows, after_decline, after_rally):
-    """Each pattern after a decline, then the same bars upside down after a rally."""
-    for df, name in ((_candles(rows), after_decline), (mirror(_candles(rows)), after_rally)):
-        p = [p for p in analyze(df)[0] if p.category == "candle"][-1]
-        assert (p.name, p.end, p.start) == (name, len(df) - 1, len(df) - len(rows))
-
-
-def test_three_crows_and_soldiers_open_at_the_prior_close():
-    crows = _candles([(60.0, 60.2, 57.0, 57.5), (57.5, 57.7, 54.5, 55.0), (55.0, 55.2, 52.0, 52.5)])
-    assert candle_signals(crows, atr(crows))["three_crows"][-1]
-    soldiers = mirror(crows)
-    assert candle_signals(soldiers, atr(soldiers))["three_soldiers"][-1]
 
 
 def mirror(df: pd.DataFrame, around: float = 300.0) -> pd.DataFrame:
@@ -449,8 +388,8 @@ def test_outlook_names_the_patterns_it_used():
     assert patterns[o["mainId"]].name == "Double Top" and o["mainId"] in o["patternIds"]
     used = [patterns[k] for k in o["patternIds"]]
     assert all(p.direction != "neutral" for p in used)
-    # old patterns and old candles don't count: only those still in play
-    assert all(p.end >= len(df) - 1 - (20 if p.category != "candle" else 2) for p in used)
+    # old patterns don't count: only those still in play
+    assert all(p.end >= len(df) - 1 - 20 for p in used)
     assert any(p.end < len(df) - 25 for p in patterns) and len(used) < len(patterns)
 
 

@@ -221,7 +221,6 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .dot.trend { background: var(--accent); }
 .dot.lvl { background: var(--support); }
 .dot.gap { background: var(--resistance); }
-.dot.cndl { background: var(--bull); }
 
 .layout {
   flex: 1;

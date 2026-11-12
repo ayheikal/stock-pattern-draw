@@ -15,7 +15,6 @@ technical-analysis patterns detected and drawn automatically.
 - **Trend:** active up/down trendlines, ascending/descending channels
 - **Support / Resistance:** horizontal levels clustered from swing points
 - **Gaps:** Breakaway (out of a quiet range to a new high or low), Runaway (mid-trend and still open 5 bars later; target = the move so far again, since it tends to sit halfway), Exhaustion (after a run, filled within 5 bars, so it points the other way), and Island Top / Bottom (a gap with the trend, then a gap back that strands the bars between). EGX bars almost always open at the previous close, so EGX gaps are rare: they appear only in stretches of history where the data has real opening prices.
-- **Candlesticks:** Doji, Dragonfly / Gravestone Doji, Hammer, Inverted Hammer, Hanging Man, Shooting Star, Engulfing, Harami, Piercing Line / Dark Cloud Cover, Tweezer Top / Bottom, Morning/Evening Star, Three Inside / Outside Up & Down, Three White Soldiers / Black Crows, Rising / Falling Three Methods. Since EGX bars almost always open at the previous close, a candle may open *at* the prior close or body edge where the textbook says beyond or inside it; Kicker and Abandoned Baby are left out because they need a gap.
 - **Outlook:** a plain-language expectation for the next period (next week on daily bars, next month on weekly, …): overall bias, the main signal, bullish/bearish scenarios with trigger levels and targets, and an ATR-based typical range
 - **Trade plan:** entry, target and stop-loss with reward/risk. The stop sits just beyond the main pattern's last swing (its invalidation point), else beyond the nearest support/resistance, else 2 × ATR. A neutral outlook gives two conditional breakout/breakdown plans instead. Target and stop are drawn on the chart.
 
@@ -241,7 +240,7 @@ Tag any stock yourself from its chart (*Mark halal* / *Mark not halal*); your ta
 outlook over up to 10 years of history: at every sample bar it rebuilds the outlook from the previous 250 bars
 only (no look-ahead), then records what price did over the outlook horizon and whether the trade plan hit its
 target or its stop first. Results are grouped by bias (Bullish … Bearish) and compared with a baseline of all
-periods, overall and per symbol. **By pattern** does the same for each chart pattern and candle on its own: every
+periods, overall and per symbol. **By pattern** does the same for each chart pattern on its own: every
 completed one (forming patterns, trendlines and channels aren't counted) is measured from the first sample at or after it
 finished, and judged on how often price then moved its way against the base rate. Your profile cards show the per-symbol record for the chart's current reading, over all history and over the last year (from the newest run).
 
@@ -320,7 +319,6 @@ app/
     continuation.py    triangles, wedges, rectangles, channels, flags, pennants, cups, measured moves
     gaps.py            breakaway, runaway and exhaustion gaps, island reversals
     levels.py          S/R clustering, trendlines
-    candles.py         candlestick rules (only in trend context)
     __init__.py        analyze(): runs all detectors + overlap suppression
   final.py             final decision: combines my plan, checklist, rating, fair value and market mood
   main.py              FastAPI: GET /api/analyze?symbol=&interval=&period=

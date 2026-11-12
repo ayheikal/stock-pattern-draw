@@ -10,7 +10,7 @@ Point = tuple[int, float]
 @dataclass
 class Pattern:
     name: str
-    category: str  # "reversal" | "continuation" | "trend" | "gap" | "candle"
+    category: str  # "reversal" | "continuation" | "trend" | "gap"
     direction: str  # "bullish" | "bearish" | "neutral"
     start: int
     end: int

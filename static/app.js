@@ -306,10 +306,10 @@
   // Patterns the layer checkboxes and confidence slider let through.
   function filteredPatterns() {
     if (!state.data) return [];
-    return state.data.patterns.filter((p) => catEnabled(p.category) && (p.category === "candle" || p.confidence >= minConf()));
+    return state.data.patterns.filter((p) => catEnabled(p.category) && p.confidence >= minConf());
   }
 
-  const RECENT_BARS = 60; // "Recent": chart patterns that ended within this many bars, candles within a third of it
+  const RECENT_BARS = 60; // "Recent": patterns that ended within this many bars
 
   // The Show setting: what drives the outlook (key), the last few months (recent), or everything.
   function shown(p) {
@@ -317,7 +317,7 @@
     if (mode === "all" || state.selected === p.id) return true;
     if (mode === "key") return !!o && (o.mainId === p.id || o.patternIds.includes(p.id));
     const age = state.data.candles.length - 1 - p.end;
-    return age <= (p.category === "candle" ? RECENT_BARS / 3 : RECENT_BARS);
+    return age <= RECENT_BARS;
   }
 
   function visiblePatterns() {
@@ -389,17 +389,6 @@
       const color = dirColor(p.direction);
       const sel = state.selected === p.id;
       const dim = state.selected != null && !sel;
-      if (p.category === "candle") {
-        if (dim) continue;
-        const bull = p.direction === "bullish";
-        markers.push({
-          time: p.endTime,
-          position: bull ? "belowBar" : "aboveBar",
-          shape: p.direction === "neutral" ? "circle" : bull ? "arrowUp" : "arrowDown",
-          color, text: p.label, size: sel ? 1.4 : 0.8,
-        });
-        continue;
-      }
       const w = sel ? 3 : dim ? 1 : 2;
       const c = dim ? color + "55" : color;
       p.lines.forEach((ln, i) => {
@@ -556,24 +545,23 @@
   }
 
   function renderList(pats) {
-    const chartPats = pats.filter((p) => p.category !== "candle").reverse();
-    const candlePats = pats.filter((p) => p.category === "candle").reverse();
-    els.count.textContent = chartPats.length + candlePats.length;
+    const chartPats = pats.slice().reverse();
+    els.count.textContent = chartPats.length;
     const item = (p) => `
       <li data-id="${p.id}" class="${p.direction}${state.selected === p.id ? " selected" : ""}">
         <div class="row"><span class="name">${escapeHtml(p.name)}</span><span class="tag ${p.direction}">${p.direction}</span></div>
         <div class="meta">${timeLabel(p.startTime)} → ${timeLabel(p.endTime)} · ${p.category}${p.confirmed ? " · confirmed" : ["reversal", "continuation", "gap"].includes(p.category) ? " · forming" : ""}</div>
         ${p.target != null ? `<div class="meta">Target ≈ ${fmt(p.target)}</div>` : ""}
         ${trackLine(p)}
-        ${p.category !== "candle" ? `<div class="confbar" title="Confidence ${Math.round(p.confidence * 100)}%"><span style="width:${p.confidence * 100}%"></span></div>` : ""}
+        <div class="confbar" title="Confidence ${Math.round(p.confidence * 100)}%"><span style="width:${p.confidence * 100}%"></span></div>
       </li>`;
     const hidden = filteredPatterns().length - pats.length;
     const showAll = `<button type="button" class="link-inline" data-show="all">Show all</button>`;
     const more = !hidden ? "" : els.showMode.value === "key"
       ? `<li class="empty more">Showing only what drives the outlook; ${hidden} older or weaker pattern${hidden === 1 ? "" : "s"} hidden. ${showAll}</li>`
       : `<li class="empty more">${hidden} older pattern${hidden === 1 ? "" : "s"} hidden. ${showAll}</li>`;
-    els.list.innerHTML = chartPats.length + candlePats.length
-      ? chartPats.map(item).join("") + candlePats.map(item).join("") + more
+    els.list.innerHTML = chartPats.length
+      ? chartPats.map(item).join("") + more
       : els.showMode.value === "key" && hidden
         ? `<li class="empty more">No pattern is driving the outlook right now; the trend and levels do. ${showAll}</li>`
         : `<li class="empty">No patterns match the current filters.</li>`;

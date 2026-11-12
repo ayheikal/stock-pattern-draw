@@ -66,14 +66,14 @@ def plan_outcome(df: pd.DataFrame, i: int, plan: dict, max_bars: int) -> tuple[s
 
 
 def completed(patterns: list[Pattern], n: int, bars: int) -> list[list[str]]:
-    """[name, direction] of each pattern or candle that completed within the last `bars` of n bars, once each.
+    """[name, direction] of each pattern that completed within the last `bars` of n bars, once each.
 
     Forming patterns are left out (they'd count again at every sample), and so are trendlines and
     channels, which describe the trend rather than signal a breakout or a turn.
     """
     out: list[list[str]] = []
     for p in patterns:
-        if p.category == "trend" or (p.category != "candle" and not p.confirmed) or p.end < n - bars:
+        if p.category == "trend" or not p.confirmed or p.end < n - bars:
             continue
         if [p.name, p.direction] not in out:
             out.append([p.name, p.direction])
@@ -88,7 +88,7 @@ def pattern_trades(patterns: list[Pattern], w: pd.DataFrame, bars: int) -> list[
     a = float(compute_atr(w)[-1])
     out, seen = [], set()
     for p in patterns:
-        if p.category in ("trend", "candle") or not p.confirmed or p.target is None or p.end < n - bars:
+        if p.category == "trend" or not p.confirmed or p.target is None or p.end < n - bars:
             continue
         long = p.direction == "bullish"
         if p.direction == "neutral" or (p.name, p.direction) in seen or (p.target <= entry if long else p.target >= entry):

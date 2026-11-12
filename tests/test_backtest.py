@@ -82,22 +82,21 @@ def test_completed_counts_finished_patterns_once():
     pats = [P("Double Top", "reversal", "bearish", 97), P("Double Top", "reversal", "bearish", 98),
             P("Ascending Triangle", "continuation", "bullish", 99, confirmed=False),  # forming: skipped
             P("Uptrend Line", "trend", "bullish", 99),  # trend: skipped
-            P("Hammer", "candle", "bullish", 99, confirmed=False),  # candles never carry `confirmed`
             P("Runaway Gap", "gap", "bullish", 90)]  # finished before the last 5 bars
-    assert backtest.completed(pats, 100, 5) == [["Double Top", "bearish"], ["Hammer", "bullish"]]
+    assert backtest.completed(pats, 100, 5) == [["Double Top", "bearish"]]
 
 
 def test_summarize_patterns():
     s = lambda ret, *pats: {"bias": "Neutral", "fwdRet": ret, "outcome": None, "R": None, "patterns": [list(p) for p in pats]}
-    dt, ham, doji = ("Double Top", "bearish"), ("Hammer", "bullish"), ("Doji", "neutral")
+    dt, ham, doji = ("Double Top", "bearish"), ("Bull Flag", "bullish"), ("Rectangle", "neutral")
     samples = [s(-2.0, dt), s(-1.0, dt, ham), s(3.0, dt), s(1.0, ham, doji), s(2.0)]
     out = {p["name"]: p for p in backtest.summarize_patterns(samples)}
-    assert [p["name"] for p in backtest.summarize_patterns(samples)] == ["Double Top", "Hammer", "Doji"]
+    assert [p["name"] for p in backtest.summarize_patterns(samples)] == ["Double Top", "Bull Flag", "Rectangle"]
     assert out["Double Top"]["n"] == 3 and out["Double Top"]["avgRet"] == 0.0
     assert out["Double Top"]["asExpected"] == pytest.approx(66.7) and out["Double Top"]["baseRate"] == 40.0  # 3 of 5 rose
-    assert out["Hammer"]["asExpected"] == 50.0 and out["Hammer"]["baseRate"] == 60.0
-    assert out["Hammer"]["excess"] == pytest.approx(0.0 - 0.6) and out["Hammer"]["small"]
-    assert out["Doji"]["asExpected"] is None and out["Doji"]["baseRate"] is None
+    assert out["Bull Flag"]["asExpected"] == 50.0 and out["Bull Flag"]["baseRate"] == 60.0
+    assert out["Bull Flag"]["excess"] == pytest.approx(0.0 - 0.6) and out["Bull Flag"]["small"]
+    assert out["Rectangle"]["asExpected"] is None and out["Rectangle"]["baseRate"] is None
     assert backtest.summarize_patterns([{"fwdRet": 1.0}]) == []  # samples saved before patterns were tracked
 
 
@@ -110,8 +109,8 @@ def test_pattern_trades_aim_at_the_target_with_a_stop_past_the_last_swing():
     a = float(backtest.compute_atr(w)[-1])
     assert (t["side"], t["entry"], t["target"]) == ("long", 105.0, 120.0)
     assert t["stop"] == pytest.approx(98 - 0.25 * a) and t["rr"] == pytest.approx(15 / (105 - t["stop"]))
-    # no trade: forming, no target, target already passed, too old, or a candle
-    for skip in (P(confirmed=False), P(target=None), P(target=104.0), P(end=20), P(category="candle")):
+    # no trade: forming, no target, target already passed, or too old
+    for skip in (P(confirmed=False), P(target=None), P(target=104.0), P(end=20)):
         assert backtest.pattern_trades([skip], w, 5) == []
     (s,) = backtest.pattern_trades([P(name="Double Top", direction="bearish", target=90.0, category="reversal")], w, 5)
     assert s["side"] == "short" and s["stop"] == pytest.approx(106 + 0.25 * a)

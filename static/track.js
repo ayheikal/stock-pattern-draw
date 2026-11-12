@@ -144,7 +144,7 @@
     return sig > 0 ? "useful" : sig < 0 ? "misleading" : Math.abs(p.asExpected - p.baseRate) >= MIN_EDGE ? "unclear" : "none";
   }
 
-  // Success: target reached before the stop. Candles have no target; results saved before this have no trades.
+  // Success: target reached before the stop. Results saved before this have no trades.
   function successCells(p) {
     if (!p.trades) return `<td class="num muted">—</td><td class="num muted">—</td>`;
     const tip = `${p.trades.toLocaleString()} trades · average ${p.avgR >= 0 ? "+" : ""}${p.avgR.toFixed(2)} R`;
