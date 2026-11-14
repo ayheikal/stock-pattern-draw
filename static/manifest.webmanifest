@@ -13,8 +13,10 @@
     { "src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
+    { "name": "Pick a trade", "url": "/pick" },
     { "name": "My profile", "url": "/profile" },
     { "name": "EGX market", "url": "/market" },
+    { "name": "Gold in EGP", "url": "/gold" },
     { "name": "Screener", "url": "/screener" },
     { "name": "Intraday setups", "url": "/intraday" }
   ]

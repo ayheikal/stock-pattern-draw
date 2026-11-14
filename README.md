@@ -55,6 +55,43 @@ many were hidden. Its Target / Stop / R:R columns are the levels the checklist j
 
 `GET /api/decision?symbol=COMI.CA&interval=1d` returns the checks, verdict and the levels it judged, plus the rating below.
 
+## Gold in pounds
+
+`/gold` prices gold the way it's bought in Egypt ([app/gold.py](app/gold.py)): the world price in US dollars an ounce
+times USD/EGP. One gram of 24k is `ounce × USD/EGP ÷ 31.1035`; 21k is 87.5% of that, 18k is 75%, and a gold pound is
+8 g of 21k.
+
+- **What moved it** splits each move in pounds into its two parts, gold in dollars and the dollar in pounds, over a
+  day, week, month, 3 months, a year and this year, next to EGX 30 over the same days. It shows whether a gain came
+  from gold or only from the pound falling.
+- **History** charts any of the six figures, with where the price stands against its 50- and 200-day averages and
+  its one-year range.
+- **Check a local price**: type what a shop or app quotes for a gram to see how far it stands from the world price
+  and the dollar rate it implies. The local market can trade above the world price; that premium can vanish.
+- **My gold**: grams, karat and what you paid give today's value and your gain or loss, less a sell-back discount.
+  Kept in the browser only, not in your profile or its backups.
+
+The figure is what the world price implies at the bank rate: shops add workmanship and tax. Gold comes from
+TradingView's spot price (`TVC:GOLD`, then `OANDA:XAUUSD`, then the `GC=F` futures contract), the dollar from Yahoo.
+
+## Pick a trade
+
+`/pick` walks the other pages in order and ends in a trade plan or a plain *No trade today*
+([app/routine.py](app/routine.py)). It judges nothing itself: it lines up verdicts the app already reached.
+
+1. **Market**: the market mood (EGX 30's trend and breadth). Only a weak market closes the gate; buys are then shown as held back.
+2. **Sectors**: the ones to prefer (Favour / Accumulate) and to be wary of (Caution / Avoid).
+3. **Shortlist**: every stock in the chosen list whose final call is a buy, and how the rest split.
+4. **Trade plans** (top 5): shares, entry, stop, target, what the trade risks, what speaks for it and every warning against
+   it, plus the intraday rules as entry timing (4 of 5 or more = a reasonable moment). A plan is flagged when its reward is
+   under twice the risk, your money rules leave no room, three or more checks have no data, or its prices came from Yahoo
+   (the fallback source, whose history isn't always adjusted for splits and bonus shares). Unflagged plans come first, then
+   stocks in a favoured sector.
+5. **Watch list**: the Wait calls nearest to a buy, with what each is waiting for. Not buys.
+
+*Halal only* filters the plans and the watch list. The list is kept for 15 minutes; *Check the list again now* rebuilds it.
+`GET /api/routine?universe=egx_top&bars=15m` returns it all.
+
 ## Intraday setups
 
 The **Intraday** page scans a watchlist on 5-minute, 15-minute or hourly bars for a long setup, judged on the last

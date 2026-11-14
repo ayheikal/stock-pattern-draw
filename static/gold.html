@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gold in EGP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Lens" />
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Market Lens</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/gold" class="current">Gold</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/intraday">Intraday</a><a href="/value">Value</a><a href="/decide">Decide</a><a href="/pick">Pick a trade</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener track gold">
+    <div class="screener-head">
+      <h1 class="wrap">Gold in pounds <span class="muted small">the world price × the dollar rate</span></h1>
+      <div id="meta" class="muted"></div>
+    </div>
+    <div id="status" class="status inline">Loading…</div>
+
+    <section id="report" hidden>
+      <div id="tiles" class="tiles"></div>
+      <p class="muted small legend-line">1 g of 24k = gold in dollars per ounce × USD/EGP ÷ 31.1035. 21k is 87.5% of that, 18k is 75%, and a gold pound
+        is 8 g of 21k. This is what the world price implies at the bank rate: a shop adds workmanship and tax, sells above and buys back
+        below it, and the local market can stand above or below it (see <b>Check a local price</b>).</p>
+
+      <h2>What moved it <span class="muted small">gold itself, or the pound?</span></h2>
+      <div id="explain" class="verdict-box"></div>
+      <div class="table-wrap">
+        <table id="changes" class="data">
+          <thead>
+            <tr>
+              <th>Over</th>
+              <th class="num" title="Gold priced in pounds: the two columns to its right, multiplied">Gold in EGP</th>
+              <th class="num" title="The world gold price, in US dollars an ounce">= Gold in USD</th>
+              <th class="num" title="How many pounds a dollar costs: up means the pound fell">× Dollar in EGP</th>
+              <th class="num" title="EGX 30 over the same days, in pounds">EGX 30</th>
+              <th title="Which did better over the period, in pounds">Better</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>History
+        <span class="seg" id="unit">
+          <button type="button" data-u="21" class="on">21k gram</button><button type="button" data-u="24">24k gram</button><button type="button" data-u="18">18k gram</button><button type="button" data-u="pound">Gold pound</button><button type="button" data-u="usd">Ounce in USD</button><button type="button" data-u="rate">USD/EGP</button>
+        </span>
+        <span class="seg" id="range">
+          <button type="button" data-m="3">3M</button><button type="button" data-m="12" class="on">1Y</button><button type="button" data-m="36">3Y</button><button type="button" data-m="0">All</button>
+        </span></h2>
+      <div class="gold-chart"><div id="chart"></div></div>
+      <div id="trend" class="verdict-box"></div>
+
+      <h2>Check a local price <span class="muted small">is the shop's price above the world price?</span></h2>
+      <form id="local" class="settings-bar scan-bar" autocomplete="off">
+        <label>Karat
+          <select id="localKarat"><option value="21" selected>21k</option><option value="24">24k</option><option value="18">18k</option></select></label>
+        <label>Price quoted for 1 gram (EGP)
+          <input id="localPrice" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 5900" /></label>
+        <div id="localOut" class="rule-hint muted">Type the price a shop or an app quotes, without workmanship, to see how far it is from the world price.</div>
+      </form>
+
+      <h2>My gold <span class="muted small">kept in this browser only</span></h2>
+      <form id="mine" class="settings-bar scan-bar" autocomplete="off">
+        <label>Karat
+          <select id="myKarat"><option value="21" selected>21k</option><option value="24">24k</option><option value="18">18k</option></select></label>
+        <label>Grams
+          <input id="myGrams" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 50" /></label>
+        <label>Paid per gram (EGP), all in
+          <input id="myPaid" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 4200" /></label>
+        <label title="What a buyer takes off the world price when you sell back; shops differ">Sell-back discount %
+          <input id="myDiscount" type="number" min="0" max="20" step="any" inputmode="decimal" value="1" /></label>
+        <div id="myOut" class="rule-hint muted">Enter what you hold to see what it is worth now and your gain or loss in pounds.</div>
+      </form>
+      <p class="muted small">Gold: <span id="source"></span>. The dollar rate is the bank rate, not a street rate. Gold pays no income, so the
+        whole return is the price change. Not advice.</p>
+    </section>
+  </main>
+
+  <script src="/static/gold.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>

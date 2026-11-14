@@ -301,12 +301,19 @@ def buy_list(symbols: list[str], interval: str = "1d", index_card=None) -> dict:
     pros = lambda c: sum(e["stance"] == "for" for e in c["evidence"] if e["role"] == "weighs")
     buys = sorted((c for c in calls if c["decision"]["group"] == "Buy"),
                   key=lambda c: (BUY_RANK[c["decision"]["key"]], -pros(c), -(c["adtv"] or 0)))
-    brief = lambda e: {k: e[k] for k in ("key", "source", "reading", "stance", "role")}
+    brief = lambda e: {k: e[k] for k in ("key", "source", "reading", "stance", "role")} | {"detail": e.get("detail", "")}
+    passed = lambda c: sum(k["status"] == "pass" for k in c.get("checks", []))
+    # Wait calls, nearest to a buy first: what to keep an eye on, and what each is waiting for (the routine page)
+    waits = sorted((c for c in calls if c["decision"]["key"] == "wait"), key=lambda c: (-passed(c), -(c["adtv"] or 0)))
     return {
         "checked": len(calls), "skipped": scanned["skipped"], "counts": counts,
         "mood": shared._mood,
         "results": [{k: c[k] for k in ("symbol", "name", "currency", "last", "changePct", "position", "profileSymbol",
                                        "decision", "levels", "sizing", "ticket", "adtv")}
-                    | {"evidence": [brief(e) for e in c["evidence"] if e["role"] != "context" or e["key"] == "halal"]}
+                    | {"evidence": [brief(e) for e in c["evidence"] if e["role"] != "context" or e["key"] == "halal"],
+                       "checks": c.get("checks", []), "lastBar": c.get("lastBar")}
                     for c in buys],
+        "watch": [{"symbol": c["symbol"], "name": c["name"], "last": c["last"], "changePct": c["changePct"],
+                   "passed": passed(c), "known": sum(k["status"] != "unknown" for k in c.get("checks", [])),
+                   "reason": c["decision"]["reason"]} for c in waits],
     }

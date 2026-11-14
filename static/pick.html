@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pick a Trade</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Lens" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Market Lens</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/gold">Gold</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/intraday">Intraday</a><a href="/value">Value</a><a href="/decide">Decide</a><a href="/pick" class="current">Pick a trade</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener track pick">
+    <div class="screener-head">
+      <h1 class="wrap">Pick a trade <span class="muted small">the whole routine in one pass: market, sectors, shortlist, plan, timing</span></h1>
+      <div id="meta" class="muted"></div>
+    </div>
+
+    <form id="run" class="settings-bar scan-bar" autocomplete="off">
+      <label>Stocks to check
+        <select id="universe"><option value="egx_top">EGX: most traded</option></select></label>
+      <label title="Bar size for the entry-timing check on each buy">Timing bars
+        <select id="bars">
+          <option value="5m">5 minutes</option>
+          <option value="15m" selected>15 minutes</option>
+          <option value="1h">1 hour</option>
+        </select></label>
+      <label class="check" title="Only stocks on the EGX 33 Shariah list in My profile, or that you tagged halal"><input id="halalOnly" type="checkbox" /> Halal only</label>
+      <button type="submit">Run the routine</button>
+    </form>
+
+    <div id="status" class="status inline" hidden></div>
+
+    <section id="result" hidden>
+      <div id="outcome" class="call-box"></div>
+
+      <h2><span class="step">1</span> Market <span class="muted small">is this a day to buy at all?</span></h2>
+      <div id="market" class="verdict-box"></div>
+
+      <h2><span class="step">2</span> Sectors <span class="muted small">where the strength is</span></h2>
+      <div id="sectors" class="verdict-box"></div>
+
+      <h2><span class="step">3</span> Shortlist <span class="muted small" id="shortNote"></span></h2>
+      <div id="shortlist" class="verdict-box"></div>
+
+      <h2 id="plansHead"><span class="step">4</span> Trade plans <span class="muted small">shares, entry, stop, target, and what to watch</span></h2>
+      <div id="plans"></div>
+
+      <h2><span class="step">5</span> Watch list <span class="muted small">closest to a buy, and what each is waiting for. Not buys.</span></h2>
+      <div class="table-wrap">
+        <table id="watch" class="data" hidden>
+          <thead>
+            <tr><th>Stock</th><th class="num">Price</th><th class="num" title="Buy checklist checks that pass, of those with data">Checks</th><th>Waiting for</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="watchNone" class="muted small" hidden>Nothing is close to a buy either.</p>
+
+      <h2><span class="step">6</span> After you decide</h2>
+      <div class="verdict-box">
+        <ul>
+          <li>Add the stock in <a href="/profile">My profile</a> with your stop and target: that applies your cash, total-risk and sector limits and gives a copy-ready order.</li>
+          <li>Set a price alert at the stop on the stock's chart, and keep Telegram alerts on. Stops here are mental: your broker doesn't see them.</li>
+          <li>Record the trade in My profile once it's filled, so your own results build up.</li>
+        </ul>
+      </div>
+      <p id="note" class="muted small"></p>
+    </section>
+  </main>
+
+  <script src="/static/pick.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>

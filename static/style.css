@@ -791,6 +791,37 @@ body.no-scroll { overflow: hidden; }
   background: color-mix(in srgb, currentColor 13%, transparent); }
 .rule.ok { color: var(--bull); }
 .rule.no { color: var(--bear); }
+/* Gold page: unit / range switches and the history chart */
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); align-self: center; }
+.seg button { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: none; border: 0; border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--accent-soft); color: var(--accent); }
+.gold-chart { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px; margin-bottom: 12px; }
+.gold-chart #chart { height: 340px; }
+.gold .tiles { margin-bottom: 10px; }
+.gold .tile { background: var(--panel); border-color: var(--border); box-shadow: var(--shadow); }
+.gold .settings-bar input { width: 150px; }
+.gold .rule-hint { font-size: 13.5px; line-height: 1.6; }
+.gold .rule-hint b.up { color: var(--bull); } .gold .rule-hint b.down { color: var(--bear); }
+
+/* Pick a trade: numbered steps and one card per trade plan */
+.pick h2 .step { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 13px; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent); align-self: center; }
+.pick #outcome .call-label { font-size: 24px; }
+.pick .plan { margin-bottom: 14px; }
+.pick .plan .call-sym a { color: var(--text); text-decoration: none; }
+.pick .plan .call-sym a:hover { color: var(--accent); }
+.pick .plan .call-label { font-size: 20px; }
+.pick .plan .cons { margin: 4px 0 0; padding-left: 18px; }
+.pick .plan .cons li { margin: 2px 0; }
+.plan-flag { margin-top: 10px; font-size: 13.5px; line-height: 1.5; padding: 8px 12px; border-radius: var(--radius-sm); border-left: 4px solid var(--resistance);
+  background: color-mix(in srgb, var(--resistance) 9%, var(--panel)); }
+.plan-links { margin-top: 12px; font-size: 13px; }
+.plan-links a, .pick .verdict-box a { color: var(--accent); text-decoration: none; }
+.plan-links a:hover, .pick .verdict-box a:hover { text-decoration: underline; }
+.sector-chip { display: inline-block; font-size: 12.5px; font-weight: 600; border: 1px solid var(--border); border-radius: 999px; padding: 1px 10px; margin: 2px 0;
+  background: var(--panel); }
+.pick .rule { margin-left: 4px; }
 .mini-btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 4px 12px; border-radius: 999px; cursor: pointer; margin-left: auto;
   border: 1px solid var(--border); background: var(--panel); color: var(--text); }
 .mini-btn:hover { border-color: var(--accent); color: var(--accent); }

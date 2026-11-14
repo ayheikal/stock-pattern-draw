@@ -15,7 +15,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv, in_usd, is_egx
-from . import access, alerts, backtest, decision, final, intraday, intraday_backtest, intraday_log, price_alerts, profile, shariah, valuation
+from . import (access, alerts, backtest, decision, final, gold, intraday, intraday_backtest, intraday_log, price_alerts, profile,
+               routine, shariah, valuation)
 from .outlook import build_outlook
 from .patterns import Pattern, analyze
 from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
@@ -672,9 +673,67 @@ def api_final_buys(universe: str = Query("egx_top"), interval: str = Query("1d")
         out["asOf"] = int(time.time())
         _buys_cache[key] = out
     sh = profile.load().shariah
-    for r in out["results"]:
+    for r in out["results"] + out.get("watch", []):
         r["halal"] = shariah.status(sh, r["symbol"])
     return out
+
+
+@app.get("/api/routine")
+def api_routine(universe: str = Query("egx_top"), halal_only: bool = Query(False), bars: str = Query("15m"),
+                refresh: bool = Query(False)):
+    """Pick a trade: market mood, sectors, the buy list as trade plans with entry timing, and the watch list (app/routine.py)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    if bars not in intraday.INTERVALS:
+        raise HTTPException(400, f"bars must be one of {list(intraday.INTERVALS)}")
+    buys = api_final_buys(universe, "1d", refresh)
+    try:
+        sectors = _sectors_payload(profile.load())["sectors"]
+    except HTTPException:
+        sectors = None  # the routine still works without the sector outlook
+    picked = [r["symbol"] for r in buys["results"] if not halal_only or routine.is_halal(r)][:routine.MAX_PLANS]
+    with ThreadPoolExecutor(max_workers=max(1, len(picked))) as pool:
+        rows = list(pool.map(lambda s: intraday._scan_one(s, bars), picked))
+    intraday_log.record([r for r in rows if "error" not in r], bars, "scan")
+    return routine.build(buys, sectors, dict(zip(picked, rows)), halal_only) | {"universe": universe, "bars": bars}
+
+
+@app.get("/api/gold")
+def api_gold():
+    """Gold in Egyptian pounds: the world price times the dollar rate, and how much of each move was gold or the pound."""
+    gold_usd = None
+    for code in gold.GOLD_SOURCES:
+        try:
+            source, df, _ = fetch_ohlcv(code, "1d", "5y")
+            gold_usd = df["Close"]
+            break
+        except (SymbolNotFound, InsufficientHistory):
+            continue
+    if gold_usd is None:
+        raise HTTPException(502, "Couldn't load the gold price.")
+    try:
+        _, fx, _ = fetch_ohlcv("USDEGP", "1d", "5y")
+    except (SymbolNotFound, InsufficientHistory):
+        raise HTTPException(502, "Couldn't load the USD/EGP rate.")
+    try:
+        _, egx, _ = fetch_ohlcv("EGX30", "1d", "5y")
+        stocks = egx["Close"]
+    except (SymbolNotFound, InsufficientHistory):
+        stocks = None  # the comparison with stocks is optional
+    try:
+        return gold.build(gold_usd, fx["Close"], stocks) | {"source": source, "rateSource": "USD/EGP (Yahoo, bank rate)"}
+    except ValueError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/gold")
+def gold_page():
+    return FileResponse(STATIC / "gold.html")
+
+
+@app.get("/pick")
+def pick_page():
+    return FileResponse(STATIC / "pick.html")
 
 
 @app.get("/api/alerts/status")
