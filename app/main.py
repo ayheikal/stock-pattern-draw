@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv, in_usd, is_egx
-from . import access, alerts, backtest, decision, final, price_alerts, profile, shariah, valuation
+from . import access, alerts, backtest, decision, final, intraday, intraday_backtest, intraday_log, price_alerts, profile, shariah, valuation
 from .outlook import build_outlook
 from .patterns import Pattern, analyze
 from .screener import MAX_SYMBOLS, SHOW, _analyze_one, adtv, all_universes, get_universe, rank, scan
@@ -26,6 +26,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 async def lifespan(_app: FastAPI):
     alerts.start_background()  # Telegram checks during EGX hours (off unless enabled in My profile)
     price_alerts.start_background()  # price alerts set on the chart, checked at any hour
+    intraday_log.start_background()  # settles logged intraday signals; scans on its own only when switched on
     yield
 
 
@@ -271,6 +272,82 @@ def api_screen(
                      "other": sum(1 for r in out["results"] if r["decision"]["verdict"] != "avoid" and r not in ranked)}
     out["results"] = ranked
     return out
+
+
+@app.get("/api/intraday")
+def api_intraday(
+    universe: str = Query("egx"),
+    symbols: str = Query("", max_length=2000, description="Comma-separated list; overrides universe"),
+    interval: str = Query("15m"),
+    show: str = Query("all5", description="all5 = all five rules pass, 4plus = four or more, all = every symbol"),
+    halal_only: bool = Query(False, description="Only stocks on my halal list or tagged halal"),
+):
+    """Scan a watchlist for the intraday long setup (trend, VWAP, RSI, relative volume, entry candle)."""
+    if interval not in intraday.INTERVALS:
+        raise HTTPException(400, f"interval must be one of {list(intraday.INTERVALS)}")
+    if show not in intraday.SHOW:
+        raise HTTPException(400, f"show must be one of {list(intraday.SHOW)}")
+    if symbols.strip():
+        syms = list(dict.fromkeys(s.strip().upper() for s in symbols.split(",") if s.strip()))
+    elif get_universe(universe):
+        syms = get_universe(universe)["symbols"]
+    else:
+        raise HTTPException(400, f"unknown universe '{universe}'")
+    if len(syms) > MAX_SYMBOLS:
+        raise HTTPException(400, f"at most {MAX_SYMBOLS} symbols per scan")
+    out = intraday.scan(syms, interval)
+    out["logged"] = intraday_log.record(out["results"], interval, "scan")  # fresh 5/5 setups go on the live record
+    prof = profile.load()
+    for r in out["results"]:
+        r["halal"] = shariah.status(prof.shariah, r["symbol"]) if r.get("currency") else None
+    rows = [r for r in out["results"] if not halal_only or (r["halal"] or {}).get("status") == "halal"]
+    kept = [r for r in rows if r["passed"] >= intraday.SHOW[show]]
+    out["hidden"] = len(rows) - len(kept)
+    out["results"] = kept
+    return out
+
+
+def _intraday_args(universe: str, interval: str) -> None:
+    if not get_universe(universe):
+        raise HTTPException(400, f"unknown universe '{universe}'")
+    if interval not in intraday.INTERVALS:
+        raise HTTPException(400, f"interval must be one of {list(intraday.INTERVALS)}")
+
+
+@app.get("/api/intraday/backtest")
+def api_intraday_backtest(universe: str = Query("egx"), interval: str = Query("15m")):
+    """Cached replay of the intraday rules over history, plus whether a run is in progress."""
+    _intraday_args(universe, interval)
+    return {"status": intraday_backtest.status(universe, interval), "result": intraday_backtest.load(universe, interval)}
+
+
+@app.post("/api/intraday/backtest/run")
+def api_intraday_backtest_run(universe: str = Query("egx"), interval: str = Query("15m")):
+    _intraday_args(universe, interval)
+    return {"started": intraday_backtest.start(universe, interval, profile.load().settings.feePct)}
+
+
+@app.get("/api/intraday/log")
+def api_intraday_log():
+    """Live record: each logged 5/5 signal and what it did, with the results so far."""
+    return intraday_log.report(profile.load().settings.feePct)
+
+
+@app.post("/api/intraday/log/score")
+def api_intraday_log_score():
+    """Settle open signals against the latest bars now, rather than waiting for the background check."""
+    intraday_log.score()
+    return intraday_log.report(profile.load().settings.feePct)
+
+
+@app.put("/api/intraday/log/auto")
+def api_intraday_log_auto(body: dict):
+    """Switch the automatic scan (during EGX hours) on or off, for one EGX watchlist and bar size."""
+    universe, interval = str(body.get("universe", "egx")), str(body.get("interval", "15m"))
+    _intraday_args(universe, interval)
+    if bool(body.get("on")) and not (universe == "egx" or universe.startswith("egx_")):
+        raise HTTPException(400, "The automatic scan runs during EGX hours, so it needs an EGX watchlist")
+    return intraday_log.set_auto(bool(body.get("on")), universe, interval)
 
 
 @app.get("/api/decision")
@@ -662,6 +739,11 @@ def index():
 @app.get("/screener")
 def screener_page():
     return FileResponse(STATIC / "screener.html")
+
+
+@app.get("/intraday")
+def intraday_page():
+    return FileResponse(STATIC / "intraday.html")
 
 
 @app.get("/profile")

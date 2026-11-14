@@ -53,6 +53,51 @@ def bollinger(c: np.ndarray, n: int = 20, k: float = 2.0) -> tuple[np.ndarray, n
     return (mid - k * sd).to_numpy(), (mid + k * sd).to_numpy()
 
 
+def session_vwap(df: pd.DataFrame) -> np.ndarray:
+    """Volume-weighted average price, restarting each trading day (typical price x volume, running).
+    NaN until the session has traded any volume (indices never do)."""
+    day = df.index.normalize()
+    vol = df["Volume"].astype(float)
+    pv = (df["High"] + df["Low"] + df["Close"]) / 3 * vol
+    cum_v = vol.groupby(day).cumsum()
+    return (pv.groupby(day).cumsum() / cum_v.where(cum_v > 0)).to_numpy(dtype=float)
+
+
+def relative_volume_series(df: pd.DataFrame, sessions: int = 10) -> np.ndarray:
+    """At each bar: its session's volume so far, over the average volume by the same time of day in up to
+    `sessions` earlier sessions. NaN without volume or an earlier session to compare with."""
+    day = df.index.normalize()
+    cum = df["Volume"].astype(float).groupby(day).cumsum().to_numpy()
+    t = pd.DataFrame({"day": day, "clock": df.index.time, "cum": cum})
+    # volume so far by clock time (rows) for each session (columns); a session with no bar at a time keeps its last total
+    tbl = t.pivot_table(index="clock", columns="day", values="cum", aggfunc="last").sort_index().ffill()
+    # the average over the earlier sessions that had traded by that time (sessions starting later are left out)
+    base = tbl.apply(lambda row: row.dropna().shift(1).rolling(sessions, min_periods=1).mean(), axis=1).reindex(columns=tbl.columns)
+    b = base.to_numpy(dtype=float)[tbl.index.get_indexer(t["clock"]), tbl.columns.get_indexer(t["day"])]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(b > 0, cum / b, np.nan)
+
+
+def relative_volume(df: pd.DataFrame, sessions: int = 10) -> float | None:
+    """relative_volume_series at the last bar; None where it has no reading."""
+    v = relative_volume_series(df, sessions)[-1]
+    return None if np.isnan(v) else float(v)
+
+
+def adx(df: pd.DataFrame, n: int = 14) -> np.ndarray:
+    """Wilder's ADX: how strong the trend is (above ~25 trending, below ~20 sideways), whichever way it points."""
+    high, low, close = (df[k].to_numpy(dtype=float) for k in ("High", "Low", "Close"))
+    up, dn = np.diff(high, prepend=high[0]), -np.diff(low, prepend=low[0])
+    plus, minus = np.where((up > dn) & (up > 0), up, 0.0), np.where((dn > up) & (dn > 0), dn, 0.0)
+    prev = np.r_[close[0], close[:-1]]
+    tr = np.maximum.reduce([high - low, np.abs(high - prev), np.abs(low - prev)])
+    wilder = lambda x: pd.Series(x).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    t = wilder(tr)
+    pdi, mdi = 100 * wilder(plus) / t, 100 * wilder(minus) / t
+    dx = (100 * (pdi - mdi).abs() / (pdi + mdi)).fillna(0.0).where(t.notna())
+    return dx.ewm(alpha=1 / n, adjust=False, min_periods=n).mean().to_numpy()
+
+
 def _up(a: np.ndarray, b: np.ndarray | float) -> np.ndarray:
     """True on the bar where a moves from at-or-below b to above it."""
     b = np.broadcast_to(b, a.shape)

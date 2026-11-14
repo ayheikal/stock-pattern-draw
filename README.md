@@ -55,6 +55,45 @@ many were hidden. Its Target / Stop / R:R columns are the levels the checklist j
 
 `GET /api/decision?symbol=COMI.CA&interval=1d` returns the checks, verdict and the levels it judged, plus the rating below.
 
+## Intraday setups
+
+The **Intraday** page scans a watchlist on 5-minute, 15-minute or hourly bars for a long setup, judged on the last
+completed bar ([app/intraday.py](app/intraday.py)):
+
+| Rule | Passes when |
+|---|---|
+| Trend | EMA 8 above EMA 20, and both higher than 3 bars ago |
+| VWAP | Close above the session VWAP (it restarts each trading day) |
+| RSI | RSI 14 above 50 |
+| Volume | Relative volume 1.5× or more: the session's volume so far over the average by the same time of day in up to 10 earlier sessions |
+| Entry | A close above the 20-bar high (breakout), or a close up after touching VWAP or EMA 20 in the last 3 bars (retest) |
+
+Each row shows which rules pass, the stop (1.5 × ATR below the close) and target (3 × ATR above), and ADX for reference.
+*Show* lists stocks passing all five (the default), four or more, or everything. An index has no volume, so its VWAP
+and Volume rules read *no data* and it can't pass all five. Quotes can be about 15 minutes late, and outside market
+hours the result is the last session's final bar.
+
+**Do these rules make money?** The page answers it twice, both scored the same way: a signal buys the next bar's open,
+with the ATR stop and target, and is out by the session's close (a bar touching both stop and target counts as the stop).
+
+- **Backtest** ([app/intraday_backtest.py](app/intraday_backtest.py)): *Run backtest* replays the rules over the
+  intraday history of the chosen watchlist and bar size, one trade at a time per stock. At each bar the rules see
+  only that bar and earlier ones, the same code the live scan uses. It reports all five rules, four or more, all
+  five but one (does that rule add anything?) and *every bar, no rules* (what the rules must beat), before and after
+  costs: your fee from My profile plus 0.1% slippage, each way. Caveats: the history is short (Yahoo keeps 60 days of
+  5m / 15m bars, TradingView about 5,000 bars), the stocks are today's, and quotes may be late. From the command line:
+  `.venv\Scripts\python -m app.intraday_backtest egx 15m`.
+- **Live record** ([app/intraday_log.py](app/intraday_log.py)): every stock passing all five rules in a scan is
+  written to `data/intraday_log.json` while its bar is fresh (closed within 30 minutes), then scored as new bars
+  arrive. Hindsight can't touch it. *Scan and record automatically during EGX hours* runs the scan on its own
+  (off by default, EGX watchlists only, while the app is running), so the record doesn't depend on when you look.
+
+A stop of 1.5 × ATR on small bars is often well under 1% from the entry, so a round-trip cost of around 0.6% can be
+as large as the risk itself: check the *After costs* column before trading any of it.
+
+`GET /api/intraday?universe=egx&interval=15m&show=all5` returns the rows, `GET /api/intraday/backtest` the cached
+backtest and `GET /api/intraday/log` the live record.
+
 ## Fundamental + technical rating
 
 Next to the buy checklist ([app/rating.py](app/rating.py)): two scorecards and one signal, **Strong buy**, **Buy**,

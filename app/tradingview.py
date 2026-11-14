@@ -14,10 +14,11 @@ import pandas as pd
 import websocket
 
 WS_URL = "wss://data.tradingview.com/socket.io/websocket"
-RESOLUTIONS = {"1h": "60", "1d": "D", "1wk": "W", "1mo": "M"}
-# Approximate bars per period, per interval (hourly assumes ~5 trading hours/day).
-PERIOD_DAYS = {"3mo": 63, "6mo": 126, "1y": 252, "2y": 504, "5y": 1260, "10y": 2520, "max": 10000}
-BARS_PER_DAY = {"1h": 5, "1d": 1, "1wk": 1 / 5, "1mo": 1 / 21}
+RESOLUTIONS = {"5m": "5", "15m": "15", "1h": "60", "1d": "D", "1wk": "W", "1mo": "M"}
+# Approximate bars per period, per interval (hourly assumes ~5 trading hours/day; 5m / 15m a full
+# 6.5-hour US session, so the shorter EGX one is covered too).
+PERIOD_DAYS = {"5d": 5, "1mo": 21, "3mo": 63, "6mo": 126, "1y": 252, "2y": 504, "5y": 1260, "10y": 2520, "max": 10000}
+BARS_PER_DAY = {"5m": 78, "15m": 26, "1h": 5, "1d": 1, "1wk": 1 / 5, "1mo": 1 / 21}
 MAX_BARS = 5000
 
 _FRAME = re.compile(r"~m~\d+~m~")

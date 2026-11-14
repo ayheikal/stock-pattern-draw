@@ -15,6 +15,7 @@
   "shortcuts": [
     { "name": "My profile", "url": "/profile" },
     { "name": "EGX market", "url": "/market" },
-    { "name": "Screener", "url": "/screener" }
+    { "name": "Screener", "url": "/screener" },
+    { "name": "Intraday setups", "url": "/intraday" }
   ]
 }

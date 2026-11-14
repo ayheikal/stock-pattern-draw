@@ -784,6 +784,23 @@ body.no-scroll { overflow: hidden; }
 .checklist .det { grid-column: 2; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .checklist .unknown .lbl { color: var(--muted); font-weight: 500; }
 .chart-note { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+/* Intraday page: one small pill per rule (passed, failed, no data) */
+.rules-cell { white-space: nowrap; }
+.rules-cell b { margin-right: 4px; }
+.rule { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; margin-left: 2px; color: var(--muted);
+  background: color-mix(in srgb, currentColor 13%, transparent); }
+.rule.ok { color: var(--bull); }
+.rule.no { color: var(--bear); }
+.mini-btn { font: inherit; font-size: 12.5px; font-weight: 600; padding: 4px 12px; border-radius: 999px; cursor: pointer; margin-left: auto;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+.mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mini-btn:disabled { opacity: .6; cursor: wait; }
+.inline-check { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; color: var(--text); white-space: nowrap; }
+.verdict-pill.profit, .verdict-pill.target { color: var(--bull); }
+.verdict-pill.loss, .verdict-pill.stop { color: var(--bear); }
+.verdict-pill.time, .verdict-pill.open { color: var(--neutral); }
+.verdict-pill.skipped, .verdict-pill.expired { color: var(--muted); }
+tr.baseline td { border-top: 2px solid var(--border); color: var(--muted); }
 .checks-cell { white-space: nowrap; }
 .checks-cell .muted { font-size: 12px; }
 .card-block.checklist-block details { margin-top: 6px; }

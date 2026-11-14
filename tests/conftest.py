@@ -14,6 +14,7 @@ def _offline(*_args):
 def _isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("PROFILE_PATH", str(tmp_path / "profile.json"))
     monkeypatch.setenv("PATTERN_NO_ALERTS", "1")
+    monkeypatch.setenv("INTRADAY_DIR", str(tmp_path))  # intraday backtest results and the live signal log
     monkeypatch.setattr(egx, "fetch_market", _offline)
     monkeypatch.setattr(egx, "fetch_fundamentals", _offline)
     monkeypatch.setattr(rating, "_yahoo_info", _offline)

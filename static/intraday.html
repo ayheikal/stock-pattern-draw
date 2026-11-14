@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Intraday Setups</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#4f46e5" />
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Lens" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">📐 Market Lens</a>
+    <nav class="nav"><a href="/">Chart</a><a href="/market">Market</a><a href="/sectors">Sectors</a><a href="/screener">Screener</a><a href="/intraday" class="current">Intraday</a><a href="/value">Value</a><a href="/decide">Decide</a><a href="/profile">My profile</a><a href="/track">Track record</a></nav>
+    <button id="theme" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="screener track">
+    <div class="screener-head">
+      <h1>Intraday setups <span id="found" class="badge" hidden>0</span></h1>
+      <div id="scanInfo" class="muted"></div>
+    </div>
+
+    <form id="scan" class="settings-bar scan-bar" autocomplete="off">
+      <label>Watchlist
+        <select id="universe"></select></label>
+      <label class="grow">Or your own symbols
+        <input id="symbols" placeholder="COMI.CA, TMGH.CA, AAPL" title="Comma-separated symbols. When filled, the watchlist is ignored." /></label>
+      <label title="How many of the five rules a stock must pass to be listed">Show
+        <select id="show">
+          <option value="all5" selected>All 5 rules pass</option>
+          <option value="4plus">4 or more pass</option>
+          <option value="all">Everything</option>
+        </select></label>
+      <label>Bars
+        <select id="interval">
+          <option value="5m">5 minutes</option>
+          <option value="15m" selected>15 minutes</option>
+          <option value="1h">1 hour</option>
+        </select></label>
+      <label class="check" title="Only stocks on the EGX 33 Shariah list in My profile, or that you tagged halal"><input id="halalOnly" type="checkbox" /> Halal only</label>
+      <button type="submit">Scan</button>
+    </form>
+
+    <div id="scanStatus" class="status inline">Pick a watchlist, or type your own symbols, then press <b>Scan</b>.</div>
+    <div class="table-wrap">
+      <table id="results" hidden>
+        <thead>
+          <tr>
+            <th data-k="symbol">Symbol</th>
+            <th data-k="passed" title="How many of the five rules pass on the last completed bar; hover a rule for its reading">Rules</th>
+            <th data-k="entry" title="Breakout: closed above the 20-bar high. Retest: closed up after touching VWAP or EMA 20">Entry</th>
+            <th data-k="last" class="num">Last</th>
+            <th data-k="dayPct" class="num" title="Change from the previous session's close">Day</th>
+            <th data-k="vwapPct" class="num" title="Close above (+) or below (−) the session VWAP">vs VWAP</th>
+            <th data-k="rsi" class="num" title="RSI 14: above 50 is positive momentum">RSI</th>
+            <th data-k="rvol" class="num" title="Session volume so far ÷ the average by this time of day in earlier sessions; 1.5× or more passes">Rel. volume</th>
+            <th data-k="atrPct" class="num" title="ATR 14 as a % of price: how far a normal bar moves">ATR</th>
+            <th data-k="stop" class="num" title="Last close − 1.5 × ATR">Stop</th>
+            <th data-k="target" class="num" title="Last close + 3 × ATR (twice the risk)">Target</th>
+            <th data-k="adx" class="num" title="ADX 14: above ~25 a strong trend, below ~20 sideways. Not one of the five rules">ADX</th>
+            <th data-k="lastBar" title="The completed bar the rules were judged on, exchange time">Last bar</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="muted small">A long setup needs five things on the last completed bar. <b>Trend</b>: EMA 8 above EMA 20, both rising.
+      <b>VWAP</b>: close above the session's volume-weighted average price. <b>RSI</b>: above 50. <b>Volume</b>: relative
+      volume 1.5× or more. <b>Entry</b>: a close above the 20-bar high, or a close up after retesting VWAP / EMA 20.
+      Stop and target come from ATR (1.5 × and 3 ×). Ranked by rules passed, then relative volume; click a row to open its
+      hourly chart in a new tab. Quotes can be about 15 minutes late, and when the market is closed this is the last
+      session's final bar. Not advice.</p>
+
+    <h2>Do these rules make money? <span class="muted small" id="btNote"></span>
+      <button id="btRun" type="button" class="mini-btn">Run backtest</button></h2>
+    <p class="muted small legend-line">The rules replayed over the intraday history of the watchlist and bar size chosen above. At every
+      bar they see only what was known then. A signal buys the next bar's open with the ATR stop and target, and is out by the
+      session's close; one trade at a time per stock. <b>After costs</b> takes off your fee from My profile plus 0.1% slippage, on the buy
+      and on the sell. <b>Every bar (no rules)</b> is the same trade taken blindly: what the rules have to beat.</p>
+    <div id="btStatus" class="status inline" hidden></div>
+    <div id="btVerdict" class="verdict-box" hidden></div>
+    <div class="table-wrap">
+      <table id="btTable" class="data" hidden>
+        <thead>
+          <tr>
+            <th>Rule set</th>
+            <th class="num">Trades</th>
+            <th class="num" title="Share of trades that made money after costs">Won</th>
+            <th class="num" title="Target reached before the stop">Target first</th>
+            <th class="num" title="Stop hit before the target (a bar touching both counts as the stop)">Stop first</th>
+            <th class="num" title="Neither by the session's close: sold at the close">Timed out</th>
+            <th class="num" title="Average result in units of the risk taken (stop distance), before costs">Avg R</th>
+            <th class="num" title="Average price change per trade, before costs">Before costs</th>
+            <th class="num" title="Average per trade after the fee and slippage, both ways">After costs</th>
+            <th class="num" title="Money won ÷ money lost, after costs. Above 1 is profitable">Profit factor</th>
+            <th title="Profit / Loss: the average after costs is clearly away from zero (twice its standard error). Under 30 trades prove nothing">Verdict</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h2>Live record <span class="muted small" id="logNote"></span>
+      <button id="logScore" type="button" class="mini-btn" title="Check open signals against the latest bars now">Update outcomes</button></h2>
+    <p class="muted small legend-line">A backtest can be fooled by hindsight; this can't. Every stock that passes all five rules in a scan is
+      written down while its bar is fresh (closed within 30 minutes), then scored the same way as the backtest once the session plays out.
+      <label class="check inline-check" title="Scans the watchlist and bar size chosen above on its own, Sunday to Thursday during EGX hours, while the app is running. EGX watchlists only."><input id="autoOn" type="checkbox" /> Scan and record automatically during EGX hours</label>
+      <span id="autoNote" class="muted"></span></p>
+    <div id="logVerdict" class="verdict-box"></div>
+    <div class="table-wrap">
+      <table id="logTable" class="data" hidden>
+        <thead>
+          <tr>
+            <th>Signal bar</th>
+            <th>Symbol</th>
+            <th>Bars</th>
+            <th title="scan: from a scan you ran. auto: from the automatic scan">From</th>
+            <th class="num" title="The next bar's open">Entry</th>
+            <th class="num">Stop</th>
+            <th class="num">Target</th>
+            <th class="num">Exit</th>
+            <th>Result</th>
+            <th class="num" title="Result in units of the risk taken, before costs">R</th>
+            <th class="num" title="After the fee and slippage, both ways">After costs</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="/static/intraday.js"></script>
+  <script src="/static/pwa.js"></script>
+</body>
+</html>

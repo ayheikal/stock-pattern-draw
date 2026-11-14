@@ -54,6 +54,9 @@ TV_ALIASES = {
 }
 
 _cache: TTLCache = TTLCache(maxsize=256, ttl=300)
+# 5m / 15m bars (the Intraday page) go stale fast: keep them a minute, not five.
+FAST_INTERVALS = {"5m", "15m"}
+_fast_cache: TTLCache = TTLCache(maxsize=256, ttl=60)
 _lock = threading.Lock()
 
 
@@ -90,6 +93,8 @@ def candidates(symbol: str) -> list[tuple[str, str]]:
 def _download(symbol: str, interval: str, period: str) -> tuple[pd.DataFrame, dict]:
     if interval == "1h" and period not in INTRADAY_PERIODS:
         period = "2y"
+    if interval in FAST_INTERVALS and period not in ("5d", "1mo"):
+        period = "60d"  # all Yahoo keeps of 5m / 15m bars
     t = yf.Ticker(symbol)
     df = t.history(period=period, interval=interval, auto_adjust=False, actions=False)
     if df is None or df.empty:
@@ -162,9 +167,10 @@ def fetch_ohlcv(symbol: str, interval: str = "1d", period: str = "1y") -> tuple[
     has fewer than 30 bars.
     """
     key = (symbol.strip().upper(), interval, period)
+    cache = _fast_cache if interval in FAST_INTERVALS else _cache
     with _lock:
-        if key in _cache:
-            return _cache[key]
+        if key in cache:
+            return cache[key]
     short: tuple[str, int] | None = None
     for provider, sym in candidates(symbol):
         try:
@@ -176,7 +182,7 @@ def fetch_ohlcv(symbol: str, interval: str = "1d", period: str = "1y") -> tuple[
         if len(df) >= 30:
             result = (sym, df, meta)
             with _lock:
-                _cache[key] = result
+                cache[key] = result
             return result
         if len(df) and short is None:
             short = (sym, len(df))
