@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from .indicators import rsi
+
 OUNCE_GRAMS = 31.1034768
 KARATS = {"24": 1.0, "21": 0.875, "18": 0.75}
 POUND_GRAMS, POUND_KARAT = 8.0, "21"
@@ -108,6 +110,92 @@ def explain(row: dict) -> str:
             f"so the move was {lead}.")
 
 
+# --- Buy decision: gold in pounds is gold in dollars times the dollar in pounds, so both have to be read. ---
+# Rule (static/gold.js applies the same one when a local premium is added; change both together):
+#   2+ fails -> Hold off;  1 fail or 2+ warnings -> Wait;  otherwise -> Good time to buy.
+GOLD_OVERBOUGHT_RSI = 70     # gold's 14-day RSI above this: stretched, prone to a pullback
+GOLD_STRETCH_PCT = 8.0       # or this far above its 50-day average
+RATE_STEADY_PCT = 1.0        # USD/EGP within this over 3 months: the pound is steady
+RATE_FALL_FAIL_PCT = 3.0     # the dollar down more than this over 3 months: the pound is strengthening, a real headwind
+RATE_JUMP_PCT = 5.0          # the dollar up this much in a month: a devaluation step gold in pounds has already priced in
+VERDICTS = {"buy": "Good time to buy", "wait": "Wait", "avoid": "Hold off"}
+
+
+def _check(key: str, label: str, status: str, detail: str) -> dict:
+    return {"key": key, "label": label, "status": status, "detail": detail}
+
+
+def verdict_of(checks: list[dict]) -> str:
+    fails = sum(c["status"] == "fail" for c in checks)
+    warns = sum(c["status"] == "warn" for c in checks)
+    return "avoid" if fails >= 2 else "wait" if fails or warns >= 2 else "buy"
+
+
+def _change_over(s: pd.Series, back: pd.DateOffset) -> float | None:
+    at = s.index.asof(s.index[-1] - back)
+    return None if pd.isna(at) else _pct(float(s.iloc[-1]), float(s.loc[at]))
+
+
+def _trend_check(key: str, label: str, t: dict) -> dict:
+    status = {"Uptrend": "pass", "Downtrend": "fail", "Mixed": "warn"}.get(t["trend"], "unknown")
+    detail = (f"{t['trend']}: {'above' if t['above200'] else 'below'} its 200-day average ({t['vs200Pct']:+.1f}%), "
+              f"{'above' if t['above50'] else 'below'} its 50-day." if t["above200"] is not None else "Too little history to read a trend.")
+    return _check(key, label, status, detail)
+
+
+def decide(df: pd.DataFrame) -> dict:
+    """Is now a good time to buy gold with pounds? Reads gold in dollars, the dollar in pounds, and the two combined."""
+    usd, rate, egp = df["usd"], df["rate"], df["gram24"] * KARATS["21"]
+    checks = [_trend_check("gold", "Gold in dollars is rising", trend(usd))]
+
+    r = float(rsi(usd.to_numpy(dtype=float))[-1]) if len(usd) > 15 else None
+    sma50 = float(usd.rolling(50).mean().iloc[-1]) if len(usd) >= 50 else None
+    stretch = _pct(float(usd.iloc[-1]), sma50) if sma50 else None
+    if r is None or stretch is None:
+        checks.append(_check("goldHeat", "Gold isn't overstretched", "unknown", "Too little history."))
+    elif r > GOLD_OVERBOUGHT_RSI or stretch > GOLD_STRETCH_PCT:
+        checks.append(_check("goldHeat", "Gold isn't overstretched", "warn",
+                             f"RSI {r:.0f} and {stretch:+.1f}% from its 50-day average: after a run like this gold often pulls back. Consider buying in parts."))
+    else:
+        checks.append(_check("goldHeat", "Gold isn't overstretched", "pass", f"RSI {r:.0f}, {stretch:+.1f}% from its 50-day average."))
+
+    q = _change_over(rate, pd.DateOffset(months=3))
+    if q is None:
+        checks.append(_check("rate", "The pound isn't strengthening", "unknown", "Too little dollar history."))
+    elif q > RATE_STEADY_PCT:
+        checks.append(_check("rate", "The pound isn't strengthening", "pass",
+                             f"The dollar rose {q:.1f}% against the pound in 3 months: a weaker pound lifts gold in pounds on top of gold itself."))
+    elif q >= -RATE_STEADY_PCT:
+        checks.append(_check("rate", "The pound isn't strengthening", "pass",
+                             f"The dollar is steady against the pound ({q:+.1f}% in 3 months), so gold in pounds follows gold in dollars."))
+    else:
+        checks.append(_check("rate", "The pound isn't strengthening", "fail" if q < -RATE_FALL_FAIL_PCT else "warn",
+                             f"The dollar fell {abs(q):.1f}% against the pound in 3 months: a stronger pound takes that much off gold in pounds even if gold holds."))
+
+    m = _change_over(rate, pd.DateOffset(months=1))
+    if m is not None and m >= RATE_JUMP_PCT:
+        checks.append(_check("rateJump", "The dollar hasn't just jumped", "warn",
+                             f"The dollar jumped {m:.1f}% in a month: gold in pounds has already priced that in, and the pound often claws some of it back."))
+    elif m is not None:
+        checks.append(_check("rateJump", "The dollar hasn't just jumped", "pass", f"The dollar moved {m:+.1f}% against the pound this month."))
+
+    checks.append(_trend_check("egp", "Gold in pounds is rising", trend(egp)))
+    v = verdict_of(checks)
+    return {"verdict": v, "label": VERDICTS[v], "reason": _reason(v, checks), "checks": checks}
+
+
+PROBLEMS = {"gold": "gold in dollars isn't rising", "goldHeat": "gold is overstretched", "rate": "the pound is strengthening",
+            "rateJump": "the dollar has just jumped", "egp": "gold in pounds isn't rising", "local": "the local price carries a premium"}
+
+
+def _reason(v: str, checks: list[dict]) -> str:
+    bad = [PROBLEMS.get(c["key"], c["label"].lower()) for c in checks if c["status"] in ("fail", "warn")]
+    if not bad:
+        return "Gold in dollars and the dollar in pounds both support gold in pounds right now."
+    lead = {"buy": "Mostly supportive, but", "wait": "Not everything lines up:", "avoid": "Too much is against it:"}[v]
+    return f"{lead} {', '.join(bad[:-1]) + ' and ' + bad[-1] if len(bad) > 1 else bad[0]}."
+
+
 def build(gold_usd: pd.Series, usd_egp: pd.Series, stocks: pd.Series | None = None, points: int = 1300) -> dict:
     """Everything the gold page shows, from daily closes of gold (USD an ounce), USD/EGP and, optionally, EGX 30."""
     df = combine(gold_usd, usd_egp)
@@ -125,6 +213,8 @@ def build(gold_usd: pd.Series, usd_egp: pd.Series, stocks: pd.Series | None = No
         "explain": explain(month) if month else "",
         "trendEgp": trend(df["gram24"] * KARATS["21"]),
         "trendUsd": trend(df["usd"]),
+        "trendRate": trend(df["rate"]),
+        "decision": decide(df),
         "karats": KARATS, "poundGrams": POUND_GRAMS, "ounceGrams": OUNCE_GRAMS,
         "series": [{"time": d.strftime("%Y-%m-%d"), "usd": round(float(r.usd), 2), "rate": round(float(r.rate), 4), "gram24": round(float(r.gram24), 2)}
                    for d, r in df.tail(points).iterrows()],

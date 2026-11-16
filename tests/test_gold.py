@@ -107,3 +107,49 @@ def test_endpoint_falls_back_to_another_gold_source_and_works_without_the_index(
     data.clear()
     assert client.get("/api/gold").status_code == 502
     assert client.get("/gold").status_code == 200
+
+
+def _frame(usd, rate) -> pd.DataFrame:
+    return gold.combine(series(usd), series(rate))
+
+
+def _status(d: dict) -> dict:
+    return {c["key"]: c["status"] for c in d["checks"]}
+
+
+def test_decision_buys_when_gold_rises_and_the_pound_is_steady():
+    n = 300
+    d = gold.decide(_frame(np.linspace(2000, 2400, n) + 15 * np.sin(np.arange(n) / 3), np.full(n, 50.0)))
+    assert _status(d) == {"gold": "pass", "goldHeat": "pass", "rate": "pass", "rateJump": "pass", "egp": "pass"}
+    assert d["verdict"] == "buy" and d["label"] == "Good time to buy"
+
+
+def test_decision_holds_off_when_gold_falls_and_the_pound_strengthens():
+    n = 300
+    d = gold.decide(_frame(np.linspace(2400, 2000, n), np.linspace(55, 48, n)))
+    s = _status(d)
+    assert s["gold"] == "fail" and s["rate"] == "fail" and s["egp"] == "fail"
+    assert d["verdict"] == "avoid" and "the pound is strengthening" in d["reason"]
+
+
+def test_a_weaker_pound_can_carry_gold_in_pounds_when_gold_itself_falls():
+    n = 300
+    d = gold.decide(_frame(np.linspace(2400, 2200, n), np.linspace(40, 60, n)))
+    s = _status(d)
+    assert s["gold"] == "fail" and s["rate"] == "pass" and s["egp"] == "pass" and d["verdict"] == "wait"
+
+
+def test_decision_warns_after_a_devaluation_jump_and_a_gold_spike():
+    n = 300
+    rate = np.r_[np.full(n - 10, 50.0), np.full(10, 54.0)]            # the dollar up 8% in the last two weeks
+    usd = np.r_[np.linspace(2000, 2100, n - 20), np.linspace(2100, 2500, 20)]   # gold spiking
+    s = _status(gold.decide(_frame(usd, rate)))
+    assert s["rateJump"] == "warn" and s["goldHeat"] == "warn"
+
+
+def test_verdict_rule():
+    c = lambda *st: [{"status": x} for x in st]
+    assert gold.verdict_of(c("pass", "pass", "warn")) == "buy"
+    assert gold.verdict_of(c("pass", "warn", "warn")) == "wait"
+    assert gold.verdict_of(c("fail", "pass", "pass")) == "wait"
+    assert gold.verdict_of(c("fail", "fail", "pass")) == "avoid"

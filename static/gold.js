@@ -56,14 +56,52 @@
     }).join("");
   }
 
+  // ---- buy decision: the server's checks, plus the local premium when a shop price is typed in ----
+  const CHECK_ICON = { pass: "✓", warn: "!", fail: "✗", unknown: "?" };
+  const VERDICTS = { buy: ["Good time to buy", "useful"], wait: ["Wait", "none"], avoid: ["Hold off", "misleading"] };
+  const LOCAL_PREMIUM_WARN = 3; // % above the world price
+  // Same rule as gold.verdict_of (change both together): 2+ fails hold off, 1 fail or 2+ warnings wait, else buy.
+  const verdictOf = (checks) => {
+    const fails = checks.filter((c) => c.status === "fail").length, warns = checks.filter((c) => c.status === "warn").length;
+    return fails >= 2 ? "avoid" : fails || warns >= 2 ? "wait" : "buy";
+  };
+
+  function localPremium() {
+    const d = state.data, price = parseFloat($("localPrice").value), k = $("localKarat").value;
+    return d && price > 0 ? (price / d.prices.gram[k] - 1) * 100 : null;
+  }
+
+  function renderDecision() {
+    const dec = state.data && state.data.decision;
+    $("decision").hidden = !dec;
+    if (!dec) return;
+    const checks = dec.checks.slice();
+    const prem = localPremium();
+    if (prem != null) {
+      const high = prem > LOCAL_PREMIUM_WARN;
+      checks.push({ key: "local", label: "The local price is close to the world price", status: high ? "warn" : "pass",
+        detail: high ? `The price you typed is ${prem.toFixed(1)}% above the world price: you'd pay a premium that can vanish if the local market calms.`
+          : `The price you typed is ${prem >= 0 ? `${prem.toFixed(1)}% above` : `${Math.abs(prem).toFixed(1)}% below`} the world price.` });
+    }
+    const v = prem == null ? dec.verdict : verdictOf(checks);
+    const [label, cls] = VERDICTS[v];
+    $("decisionPill").className = `verdict-pill ${cls}`;
+    $("decisionPill").textContent = label;
+    $("decisionReason").textContent = v === dec.verdict ? dec.reason
+      : `${dec.reason} With the local price you typed, it's ${label.toLowerCase()}: ${checks[checks.length - 1].detail}`;
+    $("decisionChecks").innerHTML = checks.map((c) => `<li class="${c.status}"><span class="ic">${CHECK_ICON[c.status]}</span>
+      <span><b>${escapeHtml(c.label)}</b> <span class="muted">${escapeHtml(c.detail)}</span></span></li>`).join("");
+  }
+
   function renderTrend(d) {
-    const t = d.trendEgp, u = d.trendUsd;
+    const t = d.trendEgp, u = d.trendUsd, r = d.trendRate;
     const cls = { Uptrend: "good", Downtrend: "bad" };
     const line = (name, x, digits, unit) => `<b>${name}: ${escapeHtml(x.trend)}.</b> `
       + (x.above200 == null ? "" : `${x.above200 ? "Above" : "Below"} its 200-day average (${pct(x.vs200Pct)}), ${x.above50 ? "above" : "below"} its 50-day. `)
       + `One-year range ${money(x.low, digits)} to ${money(x.high, digits)} ${unit}; now ${pct(x.offHighPct)} from the high.`;
     $("trend").innerHTML = `<ul><li class="${cls[t.trend] || "flat"}">${line("21k gram in pounds", t, 0, "EGP")}</li>
-      <li class="${cls[u.trend] || "flat"}">${line("Ounce in dollars", u, 0, "USD")}</li></ul>`;
+      <li class="${cls[u.trend] || "flat"}">${line("Ounce in dollars", u, 0, "USD")}</li>
+      ${r ? `<li class="${cls[r.trend] || "flat"}">${line("Dollar in pounds (up = weaker pound, lifts gold in pounds)", r, 2, "EGP")}</li>` : ""}</ul>`;
   }
 
   // ---- chart ----
@@ -167,6 +205,7 @@
       renderTiles(d);
       renderChanges(d);
       renderTrend(d);
+      renderDecision();
       drawChart();
       localCheck();
       myGold();
@@ -179,7 +218,7 @@
   restore();
   segment("unit", "u", (v) => { state.unit = v; });
   segment("range", "m", (v) => { state.months = Number(v); });
-  for (const f of FIELDS) $(f).addEventListener("input", () => { localCheck(); myGold(); save(); });
+  for (const f of FIELDS) $(f).addEventListener("input", () => { localCheck(); myGold(); renderDecision(); save(); });
   for (const id of ["local", "mine"]) $(id).addEventListener("submit", (e) => e.preventDefault());
 
   const root = document.documentElement;
