@@ -22,6 +22,10 @@ class Pattern:
     target: float | None = None
     confirmed: bool = False
     label: str = ""
+    # Price has since closed back behind where it stood before the breakout: the signal no longer holds.
+    failed: bool = False
+    # Breakout bar's volume over the 20 bars before it (None when there is no volume data or no breakout).
+    volume_ratio: float | None = None
 
 
 @dataclass

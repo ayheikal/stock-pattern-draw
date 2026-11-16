@@ -73,7 +73,7 @@ def completed(patterns: list[Pattern], n: int, bars: int) -> list[list[str]]:
     """
     out: list[list[str]] = []
     for p in patterns:
-        if p.category == "trend" or not p.confirmed or p.end < n - bars:
+        if p.category == "trend" or not p.confirmed or p.failed or p.end < n - bars:
             continue
         if [p.name, p.direction] not in out:
             out.append([p.name, p.direction])
@@ -88,7 +88,7 @@ def pattern_trades(patterns: list[Pattern], w: pd.DataFrame, bars: int) -> list[
     a = float(compute_atr(w)[-1])
     out, seen = [], set()
     for p in patterns:
-        if p.category == "trend" or not p.confirmed or p.target is None or p.end < n - bars:
+        if p.category == "trend" or not p.confirmed or p.failed or p.target is None or p.end < n - bars:
             continue
         long = p.direction == "bullish"
         if p.direction == "neutral" or (p.name, p.direction) in seen or (p.target <= entry if long else p.target >= entry):

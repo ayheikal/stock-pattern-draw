@@ -119,7 +119,10 @@ def detect_geometric(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> lis
                     break
             if brk is None and horizon < n and category != "trend":
                 continue  # pattern expired without resolving
-            if direction == "neutral" and brk_dir:
+            # The breakout decides the trade: a descending triangle that breaks upward is a bullish signal, and
+            # keeping its textbook direction would put the target on the wrong side of price.
+            expected = direction
+            if brk_dir and category == "continuation":
                 direction = brk_dir
             p_end = brk if brk is not None else (n - 1 if horizon >= n else end)
             if category == "trend" and brk is None:
@@ -133,7 +136,7 @@ def detect_geometric(df: pd.DataFrame, piv: list[Pivot], atr: np.ndarray) -> lis
             touches = len(hs) + len(ls)
             fit_q = 1 - max(ru, rl) / tol
             conf = 0.45 + min(0.2, 0.05 * (touches - 4)) + 0.15 * fit_q + (0.1 if brk is not None else 0)
-            if brk_dir and direction != brk_dir and category == "continuation":
+            if brk_dir and expected not in ("neutral", brk_dir) and category == "continuation":
                 conf -= 0.1  # broke against the expected direction
             out.append(
                 Pattern(

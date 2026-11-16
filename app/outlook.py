@@ -143,8 +143,8 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
     used: list[int] = []  # positions in `patterns` of everything that moved the score
     for k, p in enumerate(patterns):
         age = n - 1 - p.end
-        if age > (5 if p.category == "trend" else RECENT):
-            continue
+        if age > (5 if p.category == "trend" else RECENT) or p.failed:
+            continue  # stale, or price has undone the breakout
         sgn = SIGN[p.direction]
         if p.target is not None:
             reached = (sgn > 0 and last >= p.target) or (sgn < 0 and last <= p.target)

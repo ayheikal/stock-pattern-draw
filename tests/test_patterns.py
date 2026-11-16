@@ -410,3 +410,52 @@ def test_outlook_trade_plan_is_consistent():
             else:
                 assert plan["target"] < plan["entry"] < plan["stop"]
             assert plan["rr"] > 0
+
+
+def test_triangle_takes_the_direction_it_breaks():
+    # a descending triangle that breaks upward is a bullish signal, with its target above the pattern
+    path = LEAD_DOWN + [(8, 110), (6, 126), (6, 110), (6, 121), (6, 110), (5, 116), (5, 110), (8, 135)]
+    p = next(p for p in analyze(make_ohlc(path))[0] if p.name == "Descending Triangle")
+    assert p.confirmed and p.direction == "bullish" and p.target > p.lines[0][-1][1]
+
+
+def _breakout_frame(closes: list[float], volume: list[float] | float = 1e6) -> pd.DataFrame:
+    c = np.array(closes, dtype=float)
+    return pd.DataFrame({"Open": c, "High": c + 0.5, "Low": c - 0.5, "Close": c, "Volume": volume},
+                        index=pd.bdate_range("2024-01-01", periods=len(c)))
+
+
+def _bull_breakout(end: int) -> "Pattern":
+    from app.patterns import Pattern
+    return Pattern(name="Rectangle", category="continuation", direction="bullish", start=0, end=end,
+                   confidence=0.7, confirmed=True, target=120.0)
+
+
+def test_breakout_undone_is_marked_failed():
+    from app.patterns.breakout import mark_failures
+    held, undone = _bull_breakout(25), _bull_breakout(25)
+    mark_failures([held], _breakout_frame([100] * 25 + [104, 105, 106]))
+    mark_failures([undone], _breakout_frame([100] * 25 + [104, 101, 99]))  # closed back under the pre-breakout close
+    assert not held.failed and held.confidence == 0.7
+    assert undone.failed and undone.confidence < 0.7
+
+
+def test_failed_breakout_does_not_drive_the_outlook():
+    from app.outlook import build_outlook
+    df = _breakout_frame([100] * 60 + [104, 99])
+    p = _bull_breakout(60)
+    p.failed = True
+    o = build_outlook(df, [p], [], "1d")
+    assert o.get("mainId") is None and not any("Rectangle" in d["text"] for d in o["drivers"])
+
+
+def test_breakout_volume_feeds_confidence():
+    from app.patterns.breakout import weigh_volume
+    loud, quiet, none = _bull_breakout(25), _bull_breakout(25), _bull_breakout(25)
+    closes = [100] * 25 + [104, 105]
+    weigh_volume([loud], _breakout_frame(closes, [1e6] * 25 + [3e6, 1e6]))
+    weigh_volume([quiet], _breakout_frame(closes, [1e6] * 25 + [0.5e6, 1e6]))
+    weigh_volume([none], _breakout_frame(closes, 0.0))  # an index: no volume data
+    assert loud.volume_ratio == 3.0 and loud.confidence > 0.7
+    assert quiet.volume_ratio == 0.5 and quiet.confidence < 0.7
+    assert none.volume_ratio is None and none.confidence == 0.7

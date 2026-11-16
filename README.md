@@ -395,6 +395,7 @@ app/
     continuation.py    triangles, wedges, rectangles, channels, flags, pennants, cups, measured moves
     gaps.py            breakaway, runaway and exhaustion gaps, island reversals
     levels.py          S/R clustering, trendlines
+    breakout.py        breakout volume and failed-breakout checks
     __init__.py        analyze(): runs all detectors + overlap suppression
   final.py             final decision: combines my plan, checklist, rating, fair value and market mood
   main.py              FastAPI: GET /api/analyze?symbol=&interval=&period=
@@ -406,5 +407,16 @@ validated with tolerances expressed in ATR units, and each pattern gets a
 confidence score (use the *Min confidence* slider to filter). Reversal patterns
 and flags whose breakout never happened are discarded as failed; ones still
 within their breakout window are shown as *forming*.
+
+After detection, each confirmed breakout is checked (`patterns/breakout.py`):
+
+- **Direction follows the breakout.** A triangle, wedge or broadening pattern that
+  breaks against its textbook direction (say a descending triangle breaking up)
+  takes the direction it actually broke, with its target on that side.
+- **Breakout volume** relative to the prior 20 bars is shown (e.g. *2.3× volume*)
+  and nudges confidence up or down. Feeds without volume, such as indices, skip this.
+- **Failed breakouts.** If price has since closed back behind its pre-breakout
+  close, the pattern is labelled *breakout failed*. It stays on the chart but no
+  longer counts toward the outlook or the backtest's pattern trades.
 
 *For education only — not financial advice. Data may be delayed.*

@@ -479,7 +479,7 @@
     // The plan follows the overall bias, which can disagree with the main pattern; its R:R only belongs here when they agree.
     const plan = o.plans.find((x) => !x.conditional && (x.side === "long") === (p.direction === "bullish"));
     const s = t && t.stats[`${p.name}|${p.direction}`];
-    const status = p.confirmed ? "confirmed" : p.category === "trend" ? "active" : "forming";
+    const status = p.failed ? "breakout failed" : p.confirmed ? "confirmed" : p.category === "trend" ? "active" : "forming";
     // the strongest single pattern can be outweighed by the trend and the rest: say so rather than look like the verdict
     const overall = /bullish/i.test(o.bias) ? "bullish" : /bearish/i.test(o.bias) ? "bearish" : "neutral";
     const outweighed = overall !== p.direction
@@ -550,7 +550,7 @@
     const item = (p) => `
       <li data-id="${p.id}" class="${p.direction}${state.selected === p.id ? " selected" : ""}">
         <div class="row"><span class="name">${escapeHtml(p.name)}</span><span class="tag ${p.direction}">${p.direction}</span></div>
-        <div class="meta">${timeLabel(p.startTime)} → ${timeLabel(p.endTime)} · ${p.category}${p.confirmed ? " · confirmed" : ["reversal", "continuation", "gap"].includes(p.category) ? " · forming" : ""}</div>
+        <div class="meta">${timeLabel(p.startTime)} → ${timeLabel(p.endTime)} · ${p.category}${p.failed ? " · breakout failed" : p.confirmed ? " · confirmed" : ["reversal", "continuation", "gap"].includes(p.category) ? " · forming" : ""}${p.volume_ratio != null ? ` · ${p.volume_ratio}× volume` : ""}</div>
         ${p.target != null ? `<div class="meta">Target ≈ ${fmt(p.target)}</div>` : ""}
         ${trackLine(p)}
         <div class="confbar" title="Confidence ${Math.round(p.confidence * 100)}%"><span style="width:${p.confidence * 100}%"></span></div>
