@@ -225,6 +225,25 @@ def check_rr(plan: dict | None) -> dict:
     return _check("rr", label, "fail", text + ": the stop risks more than the target gains.")
 
 
+def _price(v: float) -> str:
+    return f"{v:,.2f}"
+
+
+def check_fib(row: dict) -> dict:
+    """Is today's price a good entry on the last big swing (Fibonacci retracements)? A chart reading, so it can
+    only warn, never fail: like the chart's own target and stop, it has no proven edge."""
+    label = "Good entry on the swing"
+    fib = row.get("fib")
+    if not fib:
+        return _check("fib", label, "unknown", "No clear swing in the last 6 months to measure.")
+    read, text = fib["read"], fib["text"]
+    if read in ("shallow", "zone"):
+        return _check("fib", label, "pass", text + f" Stop below {_price(fib['stop'])} (the 78.6% level).")
+    if read == "top":
+        return _check("fib", label, "warn", text + f" Consider a limit order near {_price(fib['entry'])} (the 50% level).")
+    return _check("fib", label, "warn", text)
+
+
 def check_fit(sizing: dict | None) -> dict:
     """From profile.sizing_for: does a position fit my money rules and what's left of my portfolio?"""
     label = "Fits my money rules"
@@ -284,6 +303,7 @@ def checklist(row: dict, *, fund: dict | None, sector: dict | None, halal: dict 
         check_fundamentals(rating),
         check_sector(sector),
         check_rr(plan),
+        check_fib(row),
         check_liquidity(row, settings.minAdtv),
         check_earnings(fund, today, settings.earningsBlackoutDays),
         check_fresh(row, today, interval, settings.holidays),
@@ -299,6 +319,7 @@ def checklist(row: dict, *, fund: dict | None, sector: dict | None, halal: dict 
     out["chart"] = {"bias": row.get("bias"), "score": row.get("score"),
                     "note": "Chart reading only: the Track record shows no reliable edge, so it isn't a check."}
     out["rating"] = rating
+    out["fib"] = row.get("fib")
     return out
 
 

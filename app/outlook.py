@@ -6,6 +6,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from . import fibonacci
 from .patterns.models import Level, Pattern
 from .pivots import atr as compute_atr
 
@@ -18,6 +19,18 @@ HORIZONS = {
 }
 RECENT = 20  # patterns ending within this many bars still influence the outlook
 SIGN = {"bullish": 1, "bearish": -1, "neutral": 0}
+# Fibonacci reading -> (driver wording, direction). Shown as a driver only: it doesn't move the score.
+FIB_DRIVER = {
+    "top": ("near the top of the last rise: a dip would be a better entry", "neutral"),
+    "shallow": ("a shallow pullback in the last rise", "bullish"),
+    "zone": ("pulled back into the 38.2–61.8% zone of the last rise", "bullish"),
+    "deep": ("a deep pullback, still above the 78.6% level", "neutral"),
+    "broken": ("gave back more than 78.6% of the last rise", "bearish"),
+    "falling": ("still near the low of the last fall", "bearish"),
+    "bounce": ("bouncing into the 38.2–61.8% zone of the last fall", "neutral"),
+    "reclaimed": ("took back most of the last fall", "bullish"),
+}
+STOP_FIBS = (0.618, 0.786)  # retracements a stop can sit just beyond
 
 
 def _fmt(x: float) -> str:
@@ -44,11 +57,13 @@ def _bias_label(score: float) -> str:
     return "Bearish"
 
 
-def _stop(long: bool, entry: float, pattern: Pattern | None, df: pd.DataFrame, a: float, levels_beyond: list[float]) -> tuple[float, str]:
+def _stop(long: bool, entry: float, pattern: Pattern | None, df: pd.DataFrame, a: float,
+          levels_beyond: list[tuple[float, str]]) -> tuple[float, str]:
     """Stop-loss just beyond the level that invalidates the idea.
 
-    Prefers the main pattern's last swing (e.g. flag low, right shoulder); falls back to the
-    next support/resistance level at least 1 ATR away, then to a 2 x ATR volatility stop.
+    Prefers the main pattern's last swing (e.g. flag low, right shoulder); falls back to the nearest
+    level beyond the price at least 1 ATR away (support/resistance or a Fibonacci retracement, as
+    (price, name) pairs sorted outward), then to a 2 x ATR volatility stop.
     """
     sgn = 1 if long else -1
     if pattern is not None and pattern.points and pattern.direction == ("bullish" if long else "bearish"):
@@ -57,10 +72,10 @@ def _stop(long: bool, entry: float, pattern: Pattern | None, df: pd.DataFrame, a
         stop = swing - sgn * 0.25 * a
         if 0.5 * a <= sgn * (entry - stop) <= 4 * a:
             return stop, f"just {'below' if long else 'above'} the last swing of the {pattern.name}"
-    for lvl in levels_beyond:
+    for lvl, name in levels_beyond:
         stop = lvl - sgn * 0.5 * a
         if a <= sgn * (entry - stop) <= 5 * a:
-            return stop, f"just {'below support' if long else 'above resistance'} at {_fmt(lvl)}"
+            return stop, f"just {'below' if long else 'above'} {name} at {_fmt(lvl)}"
     return entry - sgn * 2 * a, "2 × ATR volatility stop"
 
 
@@ -193,6 +208,12 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
         score += w
         drivers.append({"text": f"RSI {rsi:.0f}: oversold, rebound potential", "direction": "bullish", "weight": w})
 
+    # --- Fibonacci retracements of the last big swing ---
+    fib = fibonacci.retracement(df["High"].to_numpy(), df["Low"].to_numpy(), last, buffer=0.25 * a)
+    if fib:
+        words, direction = FIB_DRIVER[fib["read"]]
+        drivers.append({"text": f"Fibonacci: {words} ({fib['retracePct']:.0f}%)", "direction": direction, "weight": 0.2})
+
     drivers.sort(key=lambda d: -d["weight"])
     for d in drivers:
         d.pop("weight")
@@ -203,6 +224,8 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
     resistance = above[0] if above else float(df["High"].iloc[-RECENT:].max())
     support = below[0] if below else float(df["Low"].iloc[-RECENT:].min())
     spread = a * math.sqrt(bars_ahead)
+    if fib and fib["direction"] == "up":  # the swing high, then its 1.272 extension
+        up_targets = up_targets + [fib["high"], fib["extensions"][0]["price"]]
     up_candidates = [t for t in up_targets if t > resistance] + above[1:2]
     down_candidates = [t for t in down_targets if t < support] + below[1:2]
     up_target = min(up_candidates) if up_candidates else max(resistance, last) + spread
@@ -224,12 +247,22 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
 
     # --- trade plan: entry, target, stop-loss ---
     mp = main[1] if main else None
+    fib_at = {x["ratio"]: x["price"] for x in fib["levels"]} if fib else {}
+    fib_stops = [(fib_at[k], f"the {k * 100:.1f}% Fibonacci") for k in STOP_FIBS if k in fib_at]
+    stops_below = sorted([(p, "support") for p in below]
+                         + ([x for x in fib_stops if x[0] < last] if fib and fib["direction"] == "up" else []), key=lambda x: -x[0])
+    stops_above = sorted([(p, "resistance") for p in above]
+                         + ([x for x in fib_stops if x[0] > last] if fib and fib["direction"] == "down" else []), key=lambda x: x[0])
     plans = []
     if score >= 0.4:
-        stop, basis = _stop(True, last, mp, df, a, below)
+        stop, basis = _stop(True, last, mp, df, a, stops_below)
         plans.append(_plan(True, last, up_target, stop, "Buy (bullish bias)", basis, False))
+        # Price is still near the top of its last rise: a pullback to the 50% retracement is the better entry.
+        if fib and fib["direction"] == "up" and fib["read"] in ("top", "shallow") and fib["stop"] < fib["entry"] < last:
+            plans.append(_plan(True, fib["entry"], up_target, fib["stop"], f"Or buy on a dip to the 50% Fibonacci at {_fmt(fib['entry'])}",
+                               "just below the 78.6% Fibonacci retracement", True))
     elif score <= -0.4:
-        stop, basis = _stop(False, last, mp, df, a, above)
+        stop, basis = _stop(False, last, mp, df, a, stops_above)
         plans.append(_plan(False, last, down_target, stop, "Sell / short (bearish bias)", basis, False))
     else:
         # No clear edge: wait for price to leave the range, then trade the break.
@@ -239,7 +272,7 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
                            f"Sell only on a close below {_fmt(support)}", "1.5 × ATR above the breakdown level", True))
 
     lo, hi = max(0.0, last - spread), last + spread
-    hold_stop, _ = _stop(True, last, mp, df, a, below)
+    hold_stop, _ = _stop(True, last, mp, df, a, stops_below)
     if sma200 is None and n >= 200:
         sma200 = float(close_s.rolling(200).mean().iloc[-1])
     return {
@@ -261,6 +294,7 @@ def build_outlook(df: pd.DataFrame, patterns: list[Pattern], levels: list[Level]
         "support": round(support, 4),
         "resistance": round(resistance, 4),
         "drivers": drivers[:6],
+        "fib": fib,
         # Positions in the patterns list (the chart's pattern ids): the main signal and everything that counted.
         "mainId": main[2] if main else None,
         "patternIds": used,

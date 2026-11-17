@@ -82,6 +82,8 @@ def test_build_puts_it_together():
     assert out["previous"]["ounceUsd"] < out["prices"]["ounceUsd"] and out["goldDate"] == out["rateDate"]
     assert len(out["series"]) == 50 and out["series"][-1]["gram24"] == pytest.approx(out["prices"]["gram"]["24"], abs=0.01)
     assert out["trendEgp"]["trend"] == "Uptrend" and out["explain"] and out["changes"][0]["stocks"] is not None
+    assert out["fib"]["egp"]["direction"] == "up" and out["fib"]["egp"]["high"] == pytest.approx(out["prices"]["gram"]["24"], abs=0.01)
+    assert set(out["fib"]) == {"egp", "usd", "rate"} and "highIdx" not in out["fib"]["usd"]
     with pytest.raises(ValueError):
         gold.build(series([2000.0]), series([50.0]))
 
@@ -120,7 +122,8 @@ def _status(d: dict) -> dict:
 def test_decision_buys_when_gold_rises_and_the_pound_is_steady():
     n = 300
     d = gold.decide(_frame(np.linspace(2000, 2400, n) + 15 * np.sin(np.arange(n) / 3), np.full(n, 50.0)))
-    assert _status(d) == {"gold": "pass", "goldHeat": "pass", "rate": "pass", "rateJump": "pass", "egp": "pass"}
+    # at the top of its rise, so the Fibonacci check only cautions: one warning still buys
+    assert _status(d) == {"gold": "pass", "goldHeat": "pass", "rate": "pass", "rateJump": "pass", "egp": "pass", "fib": "warn"}
     assert d["verdict"] == "buy" and d["label"] == "Good time to buy"
 
 
@@ -153,3 +156,14 @@ def test_verdict_rule():
     assert gold.verdict_of(c("pass", "warn", "warn")) == "wait"
     assert gold.verdict_of(c("fail", "pass", "pass")) == "wait"
     assert gold.verdict_of(c("fail", "fail", "pass")) == "avoid"
+
+
+def test_fibonacci_check_passes_a_pullback_and_fails_a_collapse():
+    rise = np.linspace(2000, 2600, 100)
+    pullback = np.r_[rise, np.linspace(2600, 2330, 20)]           # gave back 45% of the rise: in the 38.2-61.8% zone
+    n = len(pullback)
+    s = _status(gold.decide(_frame(pullback, np.full(n, 50.0))))
+    assert s["fib"] == "pass"
+    collapse = np.r_[rise, np.linspace(2600, 2060, 20)]           # gave back 90%: past 78.6%, the rise has failed
+    d = gold.decide(_frame(collapse, np.full(n, 50.0)))
+    assert _status(d)["fib"] == "fail" and "isn't at a good entry" in d["reason"]

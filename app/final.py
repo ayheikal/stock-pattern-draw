@@ -229,6 +229,15 @@ def final_decision(symbol: str, interval: str = "1d", index_card=None) -> dict:
     return call_for(row, Shared(index_card), interval) | {"query": symbol}
 
 
+FIB_KEYS = ("direction", "read", "retracePct", "text", "entry", "stop", "target", "zone", "high", "low")
+
+
+def fib_summary(fib: dict | None) -> dict | None:
+    """The Fibonacci reading of the last big swing, without the full ladder of levels: where a pullback entry
+    and the stop under it would be."""
+    return {k: fib[k] for k in FIB_KEYS} if fib else None
+
+
 def call_for(row: dict, shared: Shared, interval: str = "1d") -> dict:
     """The final call for one scan row (screener._analyze_one)."""
     prof, ctx = shared.prof, shared.ctx
@@ -272,6 +281,7 @@ def call_for(row: dict, shared: Shared, interval: str = "1d") -> dict:
         "decision": call, "evidence": evidence, "checks": ck.get("checks", []),
         "levels": ck.get("plan"), "sizing": sizing if call["group"] == "Buy" and not held else None,  # an add's shares are in the ticket
         "ticket": card and card.get("ticket"),
+        "fib": fib_summary(row.get("fib")),
         "note": "Fundamentals can't be backtested, so this is discipline, not a forecast. Not financial advice.",
     }
 
@@ -311,7 +321,7 @@ def buy_list(symbols: list[str], interval: str = "1d", index_card=None) -> dict:
         "results": [{k: c[k] for k in ("symbol", "name", "currency", "last", "changePct", "position", "profileSymbol",
                                        "decision", "levels", "sizing", "ticket", "adtv")}
                     | {"evidence": [brief(e) for e in c["evidence"] if e["role"] != "context" or e["key"] == "halal"],
-                       "checks": c.get("checks", []), "lastBar": c.get("lastBar")}
+                       "checks": c.get("checks", []), "lastBar": c.get("lastBar"), "fib": c.get("fib")}
                     for c in buys],
         "watch": [{"symbol": c["symbol"], "name": c["name"], "last": c["last"], "changePct": c["changePct"],
                    "passed": passed(c), "known": sum(k["status"] != "unknown" for k in c.get("checks", [])),

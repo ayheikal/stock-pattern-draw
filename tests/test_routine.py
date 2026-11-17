@@ -154,3 +154,11 @@ def test_routine_endpoint_times_each_plan_and_survives_without_sectors(client, m
     assert [p["symbol"] for p in client.get("/api/routine?halal_only=true").json()["plans"]] == ["EGX:AAA"]
     assert client.get("/api/routine?bars=1d").status_code == 400
     assert client.get("/pick").status_code == 200
+
+
+def test_a_plan_offers_the_fibonacci_dip_as_a_better_entry():
+    fib = {"read": "top", "entry": 9.5, "stop": 8.8, "text": "Near the top of the rise."}
+    p = routine.plan(call("AAA", 2.5, 100) | {"fib": fib})
+    assert (p["dipEntry"], p["fibStop"], p["fibText"]) == (9.5, 8.8, "Near the top of the rise.")
+    assert routine.plan(call("AAA", 2.5, 100) | {"fib": fib | {"read": "zone"}})["dipEntry"] is None   # already in the zone: buy now
+    assert routine.plan(call("AAA", 2.5, 100))["dipEntry"] is None

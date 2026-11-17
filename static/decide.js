@@ -33,6 +33,11 @@
       const whose = { yours: "your", chart: "the chart's", mixed: "your / the chart's" }[l.source] || "";
       out.push(`<span class="muted">Levels judged (${whose}): target ${fmt(l.target)} (${l.upsidePct >= 0 ? "+" : ""}${l.upsidePct}%), stop ${fmt(l.stop)}, reward/risk ${l.rr} : 1.</span>`);
     }
+    const f = b.fib;
+    if (f && ["Buy", "Hold", "Wait"].includes(d.group)) {
+      out.push(`<span class="muted">Fibonacci: ${escapeHtml(f.text)}${f.entry != null && f.entry < b.last
+        ? ` Better entry ${fmt(f.entry)} (the 50% level), stop below ${fmt(f.stop)}.` : ""}</span>`);
+    }
     return out.length ? `<div class="call-do">${out.join("<br />")}</div>` : "";
   }
 

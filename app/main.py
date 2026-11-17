@@ -109,6 +109,9 @@ def _outlook_on_last_bars(df: pd.DataFrame, patterns: list[Pattern], interval: s
     pos = {j: n for n, j in enumerate(order)}
     outlook["patternIds"] = [pos[to_chart[k]] for k in outlook["patternIds"]]
     outlook["mainId"] = pos[to_chart[outlook["mainId"]]] if outlook["mainId"] is not None else None
+    if outlook.get("fib"):  # swing bars counted in the chart's bars, not the window's
+        outlook["fib"]["highIdx"] += off
+        outlook["fib"]["lowIdx"] += off
     return [merged[j] for j in order], outlook
 
 
@@ -188,6 +191,9 @@ def api_analyze(
 
     def t(i: int):
         return times[max(0, min(len(times) - 1, int(i)))]
+
+    if outlook.get("fib"):
+        outlook["fib"]["highTime"], outlook["fib"]["lowTime"] = t(outlook["fib"]["highIdx"]), t(outlook["fib"]["lowIdx"])
 
     candles = [
         {"time": times[i], "open": _r(r.Open), "high": _r(r.High), "low": _r(r.Low), "close": _r(r.Close), "volume": float(r.Volume)}

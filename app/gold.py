@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from . import fibonacci
 from .indicators import rsi
 
 OUNCE_GRAMS = 31.1034768
@@ -99,6 +100,21 @@ def trend(s: pd.Series) -> dict:
             "high": round(float(year.max()), 2), "low": round(float(year.min()), 2), "offHighPct": _pct(last, float(year.max()))}
 
 
+def fib(s: pd.Series) -> dict | None:
+    """Fibonacci retracements of the last 6 months' swing of a daily close series (see app/fibonacci.py)."""
+    v = s.to_numpy(dtype=float)
+    return fibonacci.retracement(v, v, float(v[-1])) if len(v) else None
+
+
+def _fib_check(f: dict | None) -> dict:
+    """A pullback into the 23.6-61.8% band of a rise is a good entry; a dip past 78.6% means the rise has failed."""
+    label = "Gold in pounds is at a good entry"
+    if not f:
+        return _check("fib", label, "unknown", "No clear swing in the last 6 months to measure.")
+    status = "pass" if f["read"] in fibonacci.GOOD_READS else "fail" if f["read"] == "broken" else "warn"
+    return _check("fib", label, status, f["text"])
+
+
 def explain(row: dict) -> str:
     """One look-back in words: how much of the pound move was gold and how much the pound."""
     up = lambda v: f"{'rose' if v >= 0 else 'fell'} {abs(v):.1f}%"
@@ -180,12 +196,14 @@ def decide(df: pd.DataFrame) -> dict:
         checks.append(_check("rateJump", "The dollar hasn't just jumped", "pass", f"The dollar moved {m:+.1f}% against the pound this month."))
 
     checks.append(_trend_check("egp", "Gold in pounds is rising", trend(egp)))
+    checks.append(_fib_check(fib(egp)))
     v = verdict_of(checks)
     return {"verdict": v, "label": VERDICTS[v], "reason": _reason(v, checks), "checks": checks}
 
 
 PROBLEMS = {"gold": "gold in dollars isn't rising", "goldHeat": "gold is overstretched", "rate": "the pound is strengthening",
-            "rateJump": "the dollar has just jumped", "egp": "gold in pounds isn't rising", "local": "the local price carries a premium"}
+            "rateJump": "the dollar has just jumped", "egp": "gold in pounds isn't rising", "local": "the local price carries a premium",
+            "fib": "gold in pounds isn't at a good entry on its swing"}
 
 
 def _reason(v: str, checks: list[dict]) -> str:
@@ -194,6 +212,10 @@ def _reason(v: str, checks: list[dict]) -> str:
         return "Gold in dollars and the dollar in pounds both support gold in pounds right now."
     lead = {"buy": "Mostly supportive, but", "wait": "Not everything lines up:", "avoid": "Too much is against it:"}[v]
     return f"{lead} {', '.join(bad[:-1]) + ' and ' + bad[-1] if len(bad) > 1 else bad[0]}."
+
+
+def _no_idx(f: dict | None) -> dict | None:
+    return {k: v for k, v in f.items() if k not in ("highIdx", "lowIdx")} if f else None
 
 
 def build(gold_usd: pd.Series, usd_egp: pd.Series, stocks: pd.Series | None = None, points: int = 1300) -> dict:
@@ -215,6 +237,9 @@ def build(gold_usd: pd.Series, usd_egp: pd.Series, stocks: pd.Series | None = No
         "trendUsd": trend(df["usd"]),
         "trendRate": trend(df["rate"]),
         "decision": decide(df),
+        # Per 24k gram in EGP (scale by karat), per ounce in USD, and USD/EGP; swing indices are dropped (the chart
+        # draws the levels as horizontal lines)
+        "fib": {k: _no_idx(fib(df[col])) for k, col in (("egp", "gram24"), ("usd", "usd"), ("rate", "rate"))},
         "karats": KARATS, "poundGrams": POUND_GRAMS, "ounceGrams": OUNCE_GRAMS,
         "series": [{"time": d.strftime("%Y-%m-%d"), "usd": round(float(r.usd), 2), "rate": round(float(r.rate), 4), "gram24": round(float(r.gram24), 2)}
                    for d, r in df.tail(points).iterrows()],

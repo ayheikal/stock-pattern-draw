@@ -19,6 +19,7 @@
   --ema20: #f59e0b;
   --sma50: #3b82f6;
   --usd: #0891b2;
+  --fib: #db2777;
   --bb: #8b5cf6;
   --rsi: #7c3aed;
   --macd: #2563eb;
@@ -53,6 +54,7 @@
     --candle: #cbd5e1;
     --sma: #f9a8d4;
     --usd: #22d3ee;
+    --fib: #f472b6;
     --topbar: rgba(19, 23, 34, 0.78);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.6);
@@ -78,6 +80,7 @@
   --candle: #cbd5e1;
   --sma: #f9a8d4;
   --usd: #22d3ee;
+  --fib: #f472b6;
   --topbar: rgba(19, 23, 34, 0.78);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.6);
@@ -220,6 +223,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .dot.cont { background: var(--neutral); }
 .dot.trend { background: var(--accent); }
 .dot.lvl { background: var(--support); }
+.dot.fib { background: var(--fib); }
 .dot.gap { background: var(--resistance); }
 
 .layout {
@@ -1007,3 +1011,9 @@ tr.baseline td { border-top: 2px solid var(--border); color: var(--muted); }
   #evidence td:nth-child(2), #evidence td:nth-child(4) { grid-column: 1 / -1; }
   #evidence td:nth-child(3) { grid-row: 1; grid-column: 2; }
 }
+
+/* Fibonacci retracements (gold page box, chart sidebar) */
+.fib-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 4px 0 10px; }
+.fib-grid div { display: flex; flex-direction: column; gap: 2px; }
+.fib-grid b { font-size: 1.05em; }
+.fib-list .fib-r { color: var(--fib); font-weight: 600; }

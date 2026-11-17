@@ -459,3 +459,13 @@ def test_breakout_volume_feeds_confidence():
     assert loud.volume_ratio == 3.0 and loud.confidence > 0.7
     assert quiet.volume_ratio == 0.5 and quiet.confidence < 0.7
     assert none.volume_ratio is None and none.confidence == 0.7
+
+
+def test_outlook_reads_the_fibonacci_swing_and_offers_a_dip_entry():
+    o = _outlook(make_ohlc([(0, 50.0), (40, 70), (10, 66), (30, 90), (8, 86), (20, 100)]), "1wk")
+    f = o["fib"]
+    assert f["direction"] == "up" and f["low"] < f["high"] and f["read"] in ("top", "shallow")
+    assert any(d["text"].startswith("Fibonacci:") for d in o["drivers"])
+    dip = [p for p in o["plans"] if "Fibonacci" in p["label"]]
+    assert dip and dip[0]["conditional"] and dip[0]["stop"] < dip[0]["entry"] < dip[0]["target"]
+    assert dip[0]["entry"] < o["plans"][0]["entry"]                              # cheaper than buying now

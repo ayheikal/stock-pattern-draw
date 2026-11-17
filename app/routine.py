@@ -89,12 +89,16 @@ def plan(call: dict, timing: dict | None = None) -> dict:
         flags.append({"key": "data", "text": f"{len(blind)} checks have no data ({', '.join(blind)}): the call rests on less than usual."})
 
     halal = call.get("halal")
+    fib = call.get("fib") or {}
+    dip = fib.get("entry") if fib.get("read") in ("top", "shallow") and entry and fib.get("entry") and fib["entry"] < entry else None
     return {
         "symbol": call["symbol"], "name": call["name"], "last": call["last"], "changePct": call["changePct"], "lastBar": call.get("lastBar"),
         "call": call["decision"]["label"], "callKey": call["decision"]["key"], "reason": call["decision"]["reason"],
         "held": call.get("position"),
         "shares": shares, "entry": entry, "stop": stop, "target": lv.get("target"), "rr": lv.get("rr"), "upsidePct": lv.get("upsidePct"),
         "levelsFrom": lv.get("source"),
+        # Fibonacci: a better entry on a dip to the 50% retracement, and the 78.6% level the stop belongs under
+        "dipEntry": dip, "fibStop": fib.get("stop"), "fibText": fib.get("text"),
         "stopPct": round((stop / entry - 1) * 100, 2) if entry and stop else None,
         "cost": sz.get("cost") if shares else None, "risk": sz.get("risk") if shares else None,
         "riskPct": sz.get("riskPct") if shares else None, "limitedBy": sz.get("limitNote") if shares else None,

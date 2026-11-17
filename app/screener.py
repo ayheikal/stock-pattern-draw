@@ -103,6 +103,7 @@ def _analyze_one(symbol: str, interval: str, period: str) -> dict:
         "downTarget": o["downTarget"],
         "stop": buy["stop"] if buy else None,
         "chartStop": o["decision"]["stop"],  # where a long position's stop belongs, whatever the bias
+        "fib": o["fib"],  # Fibonacci retracements of the last big swing: a pullback entry and the stop under it
         "rr": buy["rr"] if buy else None,
         "action": o["decision"]["newcomer"]["action"],
         "aboveSma200": None if sma200 is None else last >= sma200,

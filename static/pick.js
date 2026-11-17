@@ -68,6 +68,10 @@
       lines.push(`<b>Levels:</b> entry ${fmt(p.entry)}, stop ${fmt(p.stop)}, target ${fmt(p.target)}; reward is ${p.rr == null ? "—" : p.rr.toFixed(1)} times the risk. No share count: see the flag below.`);
     }
     lines.push(`<span class="muted">Levels are ${p.levelsFrom === "profile" ? "your own, from My profile" : "the chart's suggestion: set your own in My profile if you disagree"}.</span>`);
+    if (p.dipEntry) {
+      lines.push(`<b>Better entry:</b> a dip to <b>${fmt(p.dipEntry)}</b> (the 50% Fibonacci level), with the stop below ${fmt(p.fibStop)}. `
+        + `<span class="muted">${escapeHtml(p.fibText || "")}</span>`);
+    } else if (p.fibText) lines.push(`<span class="muted"><b>Fibonacci:</b> ${escapeHtml(p.fibText)}</span>`);
     if (p.for.length) lines.push(`<b>For:</b> ${escapeHtml(p.for.join("; "))}.`);
     if (p.against.length) lines.push(`<b>Against / watch:</b><ul class="cons">${p.against.map((a) => `<li><b>${escapeHtml(a.label)}.</b> ${escapeHtml(a.detail)}</li>`).join("")}</ul>`);
     if (p.noData.length) lines.push(`<span class="muted"><b>No data for:</b> ${escapeHtml(p.noData.join(", "))}.</span>`);

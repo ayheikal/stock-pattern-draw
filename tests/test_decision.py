@@ -136,3 +136,17 @@ def test_screener_ranks_by_verdict_then_checks_then_liquidity():
     assert [x["symbol"] for x in screener.rank(rows)] == ["READY_BEST", "READY_LIQUID", "READY_THIN", "WAIT", "UNKNOWN"]
     assert [x["symbol"] for x in screener.rank(rows, "ready")] == ["READY_BEST", "READY_LIQUID", "READY_THIN"]
     assert screener.rank(rows, "all")[-1]["symbol"] == "AVOID"
+
+
+FIB = {"read": "zone", "text": "Pulled back 50% of the rise.", "entry": 50.0, "stop": 44.0, "target": 60.0}
+
+
+def test_fibonacci_check_only_ever_warns():
+    assert status(run(row(fib=FIB)), "fib") == "pass"
+    assert status(run(row(fib=FIB | {"read": "shallow"})), "fib") == "pass"
+    top = run(row(fib=FIB | {"read": "top", "entry": 46.0}))
+    assert status(top, "fib") == "warn" and "46.00" in next(c for c in top["checks"] if c["key"] == "fib")["detail"]
+    for read in ("deep", "broken", "falling", "bounce"):
+        assert status(run(row(fib=FIB | {"read": read})), "fib") == "warn"          # a chart reading: never a fail
+    assert status(run(), "fib") == "unknown"
+    assert run(row(fib=FIB))["fib"] == FIB

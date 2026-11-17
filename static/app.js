@@ -295,6 +295,7 @@
 
   // ---------- helpers ----------
   const catEnabled = (cat) => document.querySelector(`[data-cat="${cat}"]`).checked;
+  const fibPct = (r) => `${(r * 100).toFixed(1).replace(/\.0$/, "")}%`;
   const minConf = () => Number(els.minConf.value) / 100;
   const dirColor = (d) => css(d === "bullish" ? "--bull" : d === "bearish" ? "--bear" : "--neutral");
   const decimals = (v) => (Math.abs(v) >= 1000 ? 2 : Math.abs(v) >= 1 ? 2 : 5);
@@ -421,6 +422,16 @@
         state.priceLines.push(candles.createPriceLine({
           price: lv.price, color: css(lv.kind === "support" ? "--support" : "--resistance"),
           lineWidth: 1, lineStyle: Dashed, axisLabelVisible: true, title: `${lv.kind === "support" ? "S" : "R"} ×${lv.touches}`,
+        }));
+      }
+    }
+
+    const fib = state.data.outlook && state.data.outlook.fib;
+    if (fib && catEnabled("fib")) {
+      for (const l of fib.levels) {
+        state.priceLines.push(candles.createPriceLine({
+          price: l.price, color: css("--fib"), lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: true, title: `Fib ${fibPct(l.ratio)}`,
         }));
       }
     }
@@ -572,6 +583,23 @@
         <li><span class="${lv.kind}">${lv.kind === "support" ? "Support" : "Resistance"} · ${lv.touches} touches</span>
         <span>${fmt(lv.price)} <span class="muted">(${(((lv.price - last) / last) * 100).toFixed(1)}%)</span></span></li>`).join("")
       : `<li class="empty">No clear levels.</li>`;
+    renderFibList(last);
+  }
+
+  // Fibonacci retracements of the last big swing (outlook.fib): the levels, and what they say about entry and stop.
+  function renderFibList(last) {
+    const f = state.data.outlook && state.data.outlook.fib;
+    if (!f) {
+      $("fibNote").textContent = "No clear swing (5% or more) in the last 6 months.";
+      $("fibList").innerHTML = "";
+      return;
+    }
+    const plan = f.entry != null ? ` Entry ${fmt(f.entry)}, stop ${fmt(f.stop)}, target ${fmt(f.target)}.` : "";
+    $("fibNote").textContent = f.text + plan;
+    const rows = [[f.high, "Swing high"], ...f.levels.map((l) => [l.price, `<span class="fib-r">Fib ${fibPct(l.ratio)}</span>`]), [f.low, "Swing low"]]
+      .sort((a, b) => b[0] - a[0]);
+    $("fibList").innerHTML = rows.map(([p, name]) => `<li><span>${name}</span>
+      <span>${fmt(p)} <span class="muted">(${(((p - last) / last) * 100).toFixed(1)}%)</span></span></li>`).join("");
   }
 
   function renderOutlook(o) {

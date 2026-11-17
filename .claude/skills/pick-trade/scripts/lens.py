@@ -122,6 +122,9 @@ def shortlist(universe: str, halal_only: bool, watch: bool) -> None:
         print(f"     entry {num(lv.get('entry'))}  stop {num(lv.get('stop'))}  target {num(lv.get('target'))}  "
               f"reward:risk {num(lv.get('rr'))}  levels from {lv.get('source') or '-'}"
               + (f"  | size {sz.get('shares')} shares" if sz.get("shares") else ""))
+        fib = r.get("fib") or {}
+        if fib.get("read") in ("top", "shallow") and fib.get("entry") and fib["entry"] < r["last"]:
+            print(f"     better entry: a dip to {num(fib['entry'])} (50% Fibonacci), stop below {num(fib['stop'])}")
         print(f"     {stance_line(r['evidence'])}")
     if watch:
         s = get("/api/screen", universe=universe, show="not-avoid", halal_only="true" if halal_only else None)
@@ -177,6 +180,12 @@ def stock(symbol: str, bars: str) -> None:
             print(f"  size: not available ({e})")
     else:
         print("  No stop / target to judge: set your own in My profile.")
+    fib = f.get("fib")
+    if fib:
+        print(f"  fibonacci: {fib['text']}")
+        if fib.get("entry") is not None:
+            print(f"  fibonacci levels: entry {num(fib['entry'])}  stop {num(fib['stop'])} (below 78.6%)  target {num(fib.get('target'))}  "
+                  f"buy zone {num(fib['zone']['low'])}-{num(fib['zone']['high'])}")
     if f.get("ticket"):
         print(f"  order ticket: {json.dumps(f['ticket'], ensure_ascii=False)}")
 

@@ -67,6 +67,7 @@
     <label><input type="checkbox" data-cat="trend" checked /> <span class="dot trend"></span>Trend lines</label>
     <label><input type="checkbox" data-cat="gap" checked /> <span class="dot gap"></span>Gaps</label>
     <label><input type="checkbox" data-cat="levels" checked /> <span class="dot lvl"></span>Support / Resistance</label>
+    <label title="Retracements of the last big swing: where a pullback is a good entry, and where the stop belongs"><input type="checkbox" data-cat="fib" checked /> <span class="dot fib"></span>Fibonacci</label>
     <label><input type="checkbox" id="logScale" checked /> Log scale</label>
     <details class="ind-menu" id="indMenu">
       <summary>Indicators <span id="indCount" class="muted"></span></summary>
@@ -229,6 +230,10 @@
       <div class="tab-panel" id="panel-levels" role="tabpanel" aria-labelledby="tab-levels" hidden>
         <p class="muted small panel-hint">Support and resistance from repeated turning points, highest first.</p>
         <ul id="levelList" class="level-list"></ul>
+        <p class="muted small panel-hint">Fibonacci retracements of the last big swing. On a rise, a pullback to 38.2–61.8% is the classic entry
+          and the stop belongs below 78.6%.</p>
+        <p id="fibNote" class="small"></p>
+        <ul id="fibList" class="level-list fib-list"></ul>
       </div>
     </aside>
   </main>

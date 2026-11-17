@@ -6,7 +6,7 @@
   const money = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
   const pct = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
   const tone = (v) => (v == null ? "" : v > 0 ? "up" : v < 0 ? "down" : "");
-  const state = { data: null, unit: "21", months: 12, chart: null, line: null };
+  const state = { data: null, unit: "21", months: 12, chart: null, line: null, fibLines: [] };
   const UNITS = { 24: "1 g of 24k, EGP", 21: "1 g of 21k, EGP", 18: "1 g of 18k, EGP", pound: "Gold pound, EGP", usd: "1 ounce, USD", rate: "USD/EGP" };
 
   function setStatus(msg, isError = false) {
@@ -104,6 +104,64 @@
       ${r ? `<li class="${cls[r.trend] || "flat"}">${line("Dollar in pounds (up = weaker pound, lifts gold in pounds)", r, 2, "EGP")}</li>` : ""}</ul>`;
   }
 
+  // ---- Fibonacci: the server measures 24k gram in EGP, the ounce in USD and USD/EGP; the karats are scaled ----
+  const FIB_READS = {
+    top: ["flat", "Near the top of the last rise: buying now chases it. A dip into the buy zone is a better entry; a limit order near the 50% level is one way."],
+    shallow: ["good", "A shallow pullback in the rise. A reasonable entry; the buy zone below has firmer support."],
+    zone: ["good", "Pulled back into the 38.2–61.8% buy zone, where rises often resume. A reasonable entry, with the stop below the 78.6% level."],
+    deep: ["flat", "A deep pullback: past 61.8% but still above 78.6%. The rise is weakening; buy in parts at most, and step aside below the 78.6% level."],
+    broken: ["bad", "Gave back more than 78.6% of the rise: it has likely failed. Wait for a new swing before buying."],
+    falling: ["bad", "The last big move was a fall and the price is still near its low. Wait for a close above the 61.8% level before buying."],
+    bounce: ["flat", "Bouncing after a fall, into the levels where falls often resume. Wait for a close above the 61.8% level, better the 78.6%."],
+    reclaimed: ["good", "Took back most of the last fall: buyers are back in control."],
+  };
+
+  function fibFor(unit, d) {
+    const f = d.fib && d.fib[unit === "usd" || unit === "rate" ? unit : "egp"];
+    if (!f) return null;
+    const k = unit === "usd" || unit === "rate" ? 1 : inUnit({ gram24: 1 }, unit, d);
+    const x = (v) => (v == null ? null : v * k);
+    return { ...f, high: x(f.high), low: x(f.low), entry: x(f.entry), stop: x(f.stop), target: x(f.target),
+      zone: { low: x(f.zone.low), high: x(f.zone.high) },
+      levels: f.levels.map((l) => ({ ratio: l.ratio, price: x(l.price) })), extensions: f.extensions.map((l) => ({ ratio: l.ratio, price: x(l.price) })) };
+  }
+
+  const fibPct = (r) => `${(r * 100).toFixed(1).replace(/\.0$/, "")}%`;
+
+  function renderFib() {
+    const d = state.data, f = fibFor(state.unit, d), box = $("fib");
+    const digits = state.unit === "rate" ? 2 : 0, unit = state.unit === "usd" ? "USD" : "EGP";
+    const name = { 24: "a 24k gram", 21: "a 21k gram", 18: "an 18k gram", pound: "a gold pound", usd: "an ounce", rate: "the dollar" }[state.unit];
+    if (!f) {
+      box.innerHTML = `<ul><li class="flat">No clear swing (5% or more) in the last 6 months for ${name}, so there are no Fibonacci levels to read.</li></ul>`;
+      return;
+    }
+    const [cls, read] = FIB_READS[f.read];
+    const up = f.direction === "up";
+    const at = (r) => (f.levels.find((l) => l.ratio === r) || {}).price;
+    const price = (v) => (v == null ? "—" : `${money(v, digits)} ${unit}`);
+    const cell = (k, v, note) => `<div><span class="muted small">${k}</span><b>${v}</b><span class="muted small">${note}</span></div>`;
+    const cells = up && f.entry != null
+      ? cell("Buy zone (61.8% to 38.2%)", `${money(f.zone.low, digits)} – ${price(f.zone.high)}`, "where rises often resume")
+        + cell("Entry", price(f.entry), f.retracePct >= 38.2 ? "the price now: already in the zone or below it" : "a dip to the 50% level")
+        + cell("Rethink below", price(f.stop), "the 78.6% level: past it the rise has likely failed")
+        + cell("Target", price(f.target), f.target > f.high * 1.001 ? "the 1.272 extension, past the high" : "the swing high")
+      : cell("Close above to buy", price(at(0.618)), "the 61.8% level") + cell("Stronger sign", price(at(0.786)), "the 78.6% level")
+        + cell("Swing low", price(f.low), up ? "the rise has given back nearly all of it" : "where the fall ended");
+    box.innerHTML = `<ul><li class="${cls}"><b>${up ? "Rise" : "Fall"} from ${money(up ? f.low : f.high, digits)} to ${money(up ? f.high : f.low, digits)} ${unit}, `
+      + `${up ? "given back" : "taken back"} ${f.retracePct.toFixed(0)}%.</b> ${escapeHtml(read)}</li></ul>
+      <div class="fib-grid">${cells}</div>
+      <p class="muted small">For ${name}. The swing ends at the highest or lowest price of the last 6 months and starts where that move began (up to a year back); the levels are fixed fractions of it,
+        which many traders watch, so prices often pause there. A guide to where to buy and where to give up, not a forecast.</p>`;
+  }
+
+  function drawFibLines() {
+    for (const l of state.fibLines) state.line.removePriceLine(l);
+    const f = fibFor(state.unit, state.data);
+    state.fibLines = f ? f.levels.map((l) => state.line.createPriceLine({ price: l.price, color: css("--fib"), lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: true, title: `Fib ${fibPct(l.ratio)}` })) : [];
+  }
+
   // ---- chart ----
   function chartColors() {
     return { layout: { background: { color: "transparent" }, textColor: css("--muted"), fontFamily: "Inter, sans-serif" },
@@ -122,6 +180,8 @@
     state.line.applyOptions({ lineColor: color, topColor: color + "44", bottomColor: color + "05", title: UNITS[state.unit],
       priceFormat: { type: "price", precision: usd ? 2 : 0, minMove: usd ? 0.01 : 1 } });
     state.line.setData(d.series.map((p) => ({ time: p.time, value: inUnit(p, state.unit, d) })));
+    drawFibLines();
+    renderFib();
     const last = new Date(d.series[d.series.length - 1].time);
     if (state.months) {
       const from = new Date(last);
