@@ -49,13 +49,22 @@ def test_changes_split_the_pound_move_into_gold_and_the_dollar():
     r = series(np.r_[np.full(n - 1, 50.0), 52.5])                       # and the dollar up 5%
     egx = series(np.r_[np.full(n - 1, 30000.0), 33000.0])
     rows = {x["key"]: x for x in gold.changes(gold.combine(g, r), gold.by_day(egx))}
-    assert list(rows) == ["day", "week", "month", "quarter", "year", "ytd"]
+    assert list(rows) == ["day", "week", "month", "ytd", "quarter", "year"]   # newest start first; no 2y+ history
     day = rows["day"]
     assert (day["usd"], day["rate"], day["egp"], day["stocks"]) == (10.0, 5.0, 15.5, 10.0)      # 1.10 x 1.05 = 1.155
     assert rows["month"]["egp"] == 15.5 and rows["year"]["from"] < rows["month"]["from"] < day["from"]
     assert gold.changes(gold.combine(g, r))[0]["stocks"] is None        # without an index the comparison is left out
     short = gold.changes(gold.combine(g.tail(30), r.tail(30)))
     assert [x["key"] for x in short if x["key"] in ("quarter", "year")] == []   # no price that far back
+
+
+def test_long_look_backs_take_history_starting_up_to_a_week_late():
+    idx = pd.bdate_range("2016-11-21", "2026-11-20")                     # 10 years back is Sunday 2016-11-20
+    df = pd.DataFrame({"usd": 1000.0, "rate": 20.0}, index=idx)
+    df["gram24"] = df["usd"] * df["rate"] / gold.OUNCE_GRAMS
+    rows = {x["key"]: x for x in gold.changes(df)}
+    assert {"2y", "5y", "10y"} <= set(rows) and rows["10y"]["from"] == "2016-11-21"
+    assert "10y" not in {x["key"] for x in gold.changes(df[df.index >= "2016-12-05"])}   # two weeks short: left out
 
 
 def test_explain_names_what_drove_the_move():
@@ -84,6 +93,7 @@ def test_build_puts_it_together():
     assert out["trendEgp"]["trend"] == "Uptrend" and out["explain"] and out["changes"][0]["stocks"] is not None
     assert out["fib"]["egp"]["direction"] == "up" and out["fib"]["egp"]["high"] == pytest.approx(out["prices"]["gram"]["24"], abs=0.01)
     assert set(out["fib"]) == {"egp", "usd", "rate"} and "highIdx" not in out["fib"]["usd"]
+    assert set(out["elliott"]) == {"egp", "usd", "rate"}
     with pytest.raises(ValueError):
         gold.build(series([2000.0]), series([50.0]))
 
@@ -123,7 +133,8 @@ def test_decision_buys_when_gold_rises_and_the_pound_is_steady():
     n = 300
     d = gold.decide(_frame(np.linspace(2000, 2400, n) + 15 * np.sin(np.arange(n) / 3), np.full(n, 50.0)))
     # at the top of its rise, so the Fibonacci check only cautions: one warning still buys
-    assert _status(d) == {"gold": "pass", "goldHeat": "pass", "rate": "pass", "rateJump": "pass", "egp": "pass", "fib": "warn"}
+    assert _status(d) == {"gold": "pass", "goldHeat": "pass", "rate": "pass", "rateJump": "pass", "egp": "pass", "fib": "warn",
+                          "elliott": "unknown"}                     # a steady climb has no swings to count
     assert d["verdict"] == "buy" and d["label"] == "Good time to buy"
 
 
@@ -167,3 +178,26 @@ def test_fibonacci_check_passes_a_pullback_and_fails_a_collapse():
     collapse = np.r_[rise, np.linspace(2600, 2060, 20)]           # gave back 90%: past 78.6%, the rise has failed
     d = gold.decide(_frame(collapse, np.full(n, 50.0)))
     assert _status(d)["fib"] == "fail" and "isn't at a good entry" in d["reason"]
+
+
+def _legs(*prices, k=30) -> np.ndarray:
+    return np.concatenate([np.linspace(a, b, k) for a, b in zip(prices, prices[1:])])
+
+
+@pytest.mark.parametrize("path,status", [
+    ((2000, 2300, 2150, 2550), "pass"),                         # wave 3 of a rise under way
+    ((2000, 2300, 2150, 2700, 2550, 2900, 2700), "warn"),       # five waves done, wave A down: a correction
+    ((2900, 2600, 2750, 2200), "fail"),                         # wave 3 of a fall
+])
+def test_elliott_check_reads_the_wave_under_way(path, status):
+    usd = _legs(*path)
+    d = gold.decide(_frame(usd, np.full(len(usd), 50.0)))
+    assert _status(d)["elliott"] == status
+    if status == "fail":
+        assert "Elliott wave count" in d["reason"]
+
+
+def test_waves_dates_the_labels():
+    usd = _legs(2000, 2300, 2150, 2550)
+    e = gold.waves(series(usd))
+    assert e["wave"] == "3" and all("idx" not in lb and len(lb["time"]) == 10 for lb in e["labels"])

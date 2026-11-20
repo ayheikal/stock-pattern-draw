@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from . import fibonacci
+from . import elliott, fibonacci
 from .indicators import rsi
 
 OUNCE_GRAMS = 31.1034768
@@ -21,7 +21,9 @@ KARATS = {"24": 1.0, "21": 0.875, "18": 0.75}
 POUND_GRAMS, POUND_KARAT = 8.0, "21"
 GOLD_SOURCES = ("TVC:GOLD", "OANDA:XAUUSD", "GC=F")  # spot first; the futures contract is the last resort
 PERIODS = [("week", "1 week", pd.DateOffset(weeks=1)), ("month", "1 month", pd.DateOffset(months=1)),
-           ("quarter", "3 months", pd.DateOffset(months=3)), ("year", "1 year", pd.DateOffset(years=1))]
+           ("quarter", "3 months", pd.DateOffset(months=3)), ("year", "1 year", pd.DateOffset(years=1)),
+           ("2y", "2 years", pd.DateOffset(years=2)), ("5y", "5 years", pd.DateOffset(years=5)),
+           ("10y", "10 years", pd.DateOffset(years=10))]
 
 
 def trade_dates(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -68,12 +70,16 @@ def changes(df: pd.DataFrame, stocks: pd.Series | None = None) -> list[dict]:
     last, end = df.iloc[-1], df.index[-1]
     spans = [("day", "1 day", df.index[-2])]
     for k, label, back in PERIODS:  # the last day with a price on or before the calendar date
-        at = df.index.asof(end - back)
+        target = end - back
+        at = df.index.asof(target)
+        if pd.isna(at) and df.index[0] - target <= pd.Timedelta(days=7):
+            at = df.index[0]  # history starts just after the date (a weekend or holiday): close enough
         if not pd.isna(at):
             spans.append((k, label, at))
     before = df.index[df.index.year < end.year]
     if len(before):
         spans.append(("ytd", "This year", before[-1]))  # from last year's final price
+    spans.sort(key=lambda s: s[2], reverse=True)  # newest start first, so "This year" sits among the others
     out = []
     for key, label, start in spans:
         then = df.loc[start]
@@ -113,6 +119,27 @@ def _fib_check(f: dict | None) -> dict:
         return _check("fib", label, "unknown", "No clear swing in the last 6 months to measure.")
     status = "pass" if f["read"] in fibonacci.GOOD_READS else "fail" if f["read"] == "broken" else "warn"
     return _check("fib", label, status, f["text"])
+
+
+def waves(s: pd.Series) -> dict | None:
+    """The Elliott wave count of the last year of a daily close series (see app/elliott.py), labels dated."""
+    e = elliott.count(s.to_numpy(dtype=float), s.to_numpy(dtype=float))
+    if e:
+        for lb in e["labels"]:
+            lb["time"] = s.index[lb.pop("idx")].strftime("%Y-%m-%d")
+    return e
+
+
+ELLIOTT_STATUS = {"early": "pass", "done": "pass", "late": "warn", "corrective": "warn", "turn": "warn", "bearish": "fail", "broken": "fail"}
+
+
+def _elliott_check(e: dict | None) -> dict:
+    """Early in a rise (wave 3, or a wave 2/4 pullback) or a finished correction is a good time; the last push or a
+    correction under way is a wait; a falling count, or a rising one that broke, is against it."""
+    label = "The Elliott wave count favours buying"
+    if not e:
+        return _check("elliott", label, "unknown", "No clear wave count in the last year.")
+    return _check("elliott", label, ELLIOTT_STATUS[e["read"]], e["text"])
 
 
 def explain(row: dict) -> str:
@@ -197,13 +224,14 @@ def decide(df: pd.DataFrame) -> dict:
 
     checks.append(_trend_check("egp", "Gold in pounds is rising", trend(egp)))
     checks.append(_fib_check(fib(egp)))
+    checks.append(_elliott_check(waves(egp)))
     v = verdict_of(checks)
     return {"verdict": v, "label": VERDICTS[v], "reason": _reason(v, checks), "checks": checks}
 
 
 PROBLEMS = {"gold": "gold in dollars isn't rising", "goldHeat": "gold is overstretched", "rate": "the pound is strengthening",
             "rateJump": "the dollar has just jumped", "egp": "gold in pounds isn't rising", "local": "the local price carries a premium",
-            "fib": "gold in pounds isn't at a good entry on its swing"}
+            "fib": "gold in pounds isn't at a good entry on its swing", "elliott": "the Elliott wave count doesn't favour buying"}
 
 
 def _reason(v: str, checks: list[dict]) -> str:
@@ -240,6 +268,8 @@ def build(gold_usd: pd.Series, usd_egp: pd.Series, stocks: pd.Series | None = No
         # Per 24k gram in EGP (scale by karat), per ounce in USD, and USD/EGP; swing indices are dropped (the chart
         # draws the levels as horizontal lines)
         "fib": {k: _no_idx(fib(df[col])) for k, col in (("egp", "gram24"), ("usd", "usd"), ("rate", "rate"))},
+        # The same three series' Elliott wave counts, labels dated so the chart can place them
+        "elliott": {k: waves(df[col]) for k, col in (("egp", "gram24"), ("usd", "usd"), ("rate", "rate"))},
         "karats": KARATS, "poundGrams": POUND_GRAMS, "ounceGrams": OUNCE_GRAMS,
         "series": [{"time": d.strftime("%Y-%m-%d"), "usd": round(float(r.usd), 2), "rate": round(float(r.rate), 4), "gram24": round(float(r.gram24), 2)}
                    for d, r in df.tail(points).iterrows()],

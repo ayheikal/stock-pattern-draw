@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from .data import VALID_INTERVALS, VALID_PERIODS, InsufficientHistory, SymbolNotFound, fetch_ohlcv, in_usd, is_egx
-from . import (access, alerts, backtest, decision, final, gold, intraday, intraday_backtest, intraday_log, price_alerts, profile,
+from . import (access, alerts, backtest, decision, elliott, final, gold, intraday, intraday_backtest, intraday_log, price_alerts, profile,
                routine, shariah, valuation)
 from .outlook import build_outlook
 from .patterns import Pattern, analyze
@@ -210,6 +210,12 @@ def api_analyze(
             d["neckline"] = [{"time": t(i), "index": int(i), "value": _r(v)} for i, v in p.neckline]
         out_patterns.append(d)
 
+    waves = elliott.count(df["High"].to_numpy(), df["Low"].to_numpy())
+    if waves:
+        for lb in waves["labels"]:
+            lb["index"] = lb.pop("idx")
+            lb["time"] = t(lb["index"])
+
     return {
         "symbol": resolved,
         "name": meta.get("longName") or meta.get("shortName") or resolved,
@@ -230,6 +236,7 @@ def api_analyze(
         "patternTrack": backtest.pattern_track(resolved, interval),
         "levels": [asdict(lv) | {"firstTime": t(lv.first), "lastTime": t(lv.last)} for lv in levels],
         "outlook": outlook,
+        "elliott": waves,
         "viewBars": view_bars,
         "halal": shariah.status(profile.load().shariah, resolved) if meta.get("currency") else None,
     }
@@ -710,7 +717,7 @@ def api_gold():
     gold_usd = None
     for code in gold.GOLD_SOURCES:
         try:
-            source, df, _ = fetch_ohlcv(code, "1d", "5y")
+            source, df, _ = fetch_ohlcv(code, "1d", "10y")  # 10 years for the longest look-back in gold.PERIODS
             gold_usd = df["Close"]
             break
         except (SymbolNotFound, InsufficientHistory):
@@ -718,11 +725,11 @@ def api_gold():
     if gold_usd is None:
         raise HTTPException(502, "Couldn't load the gold price.")
     try:
-        _, fx, _ = fetch_ohlcv("USDEGP", "1d", "5y")
+        _, fx, _ = fetch_ohlcv("USDEGP", "1d", "10y")
     except (SymbolNotFound, InsufficientHistory):
         raise HTTPException(502, "Couldn't load the USD/EGP rate.")
     try:
-        _, egx, _ = fetch_ohlcv("EGX30", "1d", "5y")
+        _, egx, _ = fetch_ohlcv("EGX30", "1d", "10y")
         stocks = egx["Close"]
     except (SymbolNotFound, InsufficientHistory):
         stocks = None  # the comparison with stocks is optional

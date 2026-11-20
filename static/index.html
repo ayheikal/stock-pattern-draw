@@ -68,6 +68,7 @@
     <label><input type="checkbox" data-cat="gap" checked /> <span class="dot gap"></span>Gaps</label>
     <label><input type="checkbox" data-cat="levels" checked /> <span class="dot lvl"></span>Support / Resistance</label>
     <label title="Retracements of the last big swing: where a pullback is a good entry, and where the stop belongs"><input type="checkbox" data-cat="fib" checked /> <span class="dot fib"></span>Fibonacci</label>
+    <label title="Elliott wave count of the last year's swings: which wave is under way, its usual target and where the count is wrong"><input type="checkbox" data-cat="elliott" checked /> <span class="dot elliott"></span>Elliott wave</label>
     <label><input type="checkbox" id="logScale" checked /> Log scale</label>
     <details class="ind-menu" id="indMenu">
       <summary>Indicators <span id="indCount" class="muted"></span></summary>
@@ -234,6 +235,9 @@
           and the stop belongs below 78.6%.</p>
         <p id="fibNote" class="small"></p>
         <ul id="fibList" class="level-list fib-list"></ul>
+        <p class="muted small panel-hint">Elliott wave count of the last year's swings: five waves with the trend, then an A-B-C correction.
+          Counts are subjective and get redrawn as new swings form.</p>
+        <p id="elliottNote" class="small"></p>
       </div>
     </aside>
   </main>

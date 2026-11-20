@@ -62,10 +62,16 @@ times USD/EGP. One gram of 24k is `ounce × USD/EGP ÷ 31.1035`; 21k is 87.5% of
 8 g of 21k.
 
 - **What moved it** splits each move in pounds into its two parts, gold in dollars and the dollar in pounds, over a
-  day, week, month, 3 months, a year and this year, next to EGX 30 over the same days. It shows whether a gain came
+  day, week, month, 3 months, this year, and 1, 2, 5 and 10 years, next to EGX 30 over the same days. It shows whether a gain came
   from gold or only from the pound falling.
 - **History** charts any of the six figures, with where the price stands against its 50- and 200-day averages and
   its one-year range.
+- **Elliott wave** ([app/elliott.py](app/elliott.py)) labels the last year's swings 0–5 (an impulse) and A–B–C (its
+  correction) on the History chart, names the wave under way, its usual target and the level past which the count is
+  wrong. It is also a check in **Buy gold with pounds now?**: early in a rise (wave 3, a wave 4 pullback) or a finished
+  A–B–C passes, the last push (wave 5) or a correction under way warns, and a falling or broken count fails. The main
+  Chart page draws the same count as its *Elliott wave* layer, for reference only (not a Decide check, no track record).
+  Counts are subjective and get redrawn as new swings form.
 - **Check a local price**: type what a shop or app quotes for a gram to see how far it stands from the world price
   and the dollar rate it implies. The local market can trade above the world price; that premium can vanish.
 - **My gold**: grams, karat and what you paid give today's value and your gain or loss, less a sell-back discount.

@@ -436,6 +436,19 @@
       }
     }
 
+    // Elliott wave count: a thin line through the labelled swings, the labels, and the target / wrong-past levels.
+    const ew = state.data.elliott;
+    if (ew && catEnabled("elliott")) {
+      const ewColor = css("--elliott");
+      addLine(ew.labels, ewColor + "aa", 1, Dotted);
+      for (const l of ew.labels) {
+        markers.push({ time: l.time, position: l.kind === "H" ? "aboveBar" : "belowBar", shape: "circle", color: ewColor, size: 0.1,
+          text: (l.label === "new" ? "1" : l.label) + (l.open ? "?" : "") });
+      }
+      state.priceLines.push(candles.createPriceLine({ price: ew.target, color: ewColor, lineWidth: 1, lineStyle: Dashed, axisLabelVisible: true, title: "EW target" }));
+      state.priceLines.push(candles.createPriceLine({ price: ew.invalidation, color: ewColor, lineWidth: 1, lineStyle: Dashed, axisLabelVisible: true, title: "EW wrong past" }));
+    }
+
     for (const a of alertUi.list.filter((x) => !x.triggeredAt)) {
       state.priceLines.push(candles.createPriceLine({
         price: a.price, color: css("--accent"), lineWidth: 1, lineStyle: LightweightCharts.LineStyle.LargeDashed,
@@ -584,6 +597,7 @@
         <span>${fmt(lv.price)} <span class="muted">(${(((lv.price - last) / last) * 100).toFixed(1)}%)</span></span></li>`).join("")
       : `<li class="empty">No clear levels.</li>`;
     renderFibList(last);
+    renderElliottNote();
   }
 
   // Fibonacci retracements of the last big swing (outlook.fib): the levels, and what they say about entry and stop.
@@ -600,6 +614,14 @@
       .sort((a, b) => b[0] - a[0]);
     $("fibList").innerHTML = rows.map(([p, name]) => `<li><span>${name}</span>
       <span>${fmt(p)} <span class="muted">(${(((p - last) / last) * 100).toFixed(1)}%)</span></span></li>`).join("");
+  }
+
+  // The Elliott wave count in words (state.data.elliott), under the Fibonacci levels.
+  function renderElliottNote() {
+    const e = state.data.elliott;
+    $("elliottNote").textContent = e
+      ? `${e.direction === "up" ? "Rising" : "Falling"} count, now in ${e.wave === "new" ? "a new move" : `wave ${e.wave}`}. ${e.text}`
+      : "No clear Elliott wave count in the last year.";
   }
 
   function renderOutlook(o) {

@@ -6,7 +6,7 @@
   const money = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
   const pct = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
   const tone = (v) => (v == null ? "" : v > 0 ? "up" : v < 0 ? "down" : "");
-  const state = { data: null, unit: "21", months: 12, chart: null, line: null, fibLines: [] };
+  const state = { data: null, unit: "21", months: 12, chart: null, line: null, fibLines: [], ewLines: [] };
   const UNITS = { 24: "1 g of 24k, EGP", 21: "1 g of 21k, EGP", 18: "1 g of 18k, EGP", pound: "Gold pound, EGP", usd: "1 ounce, USD", rate: "USD/EGP" };
 
   function setStatus(msg, isError = false) {
@@ -162,6 +162,54 @@
       lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: true, title: `Fib ${fibPct(l.ratio)}` })) : [];
   }
 
+  // ---- Elliott wave: counted on the same three series, scaled to the unit shown like the Fibonacci levels ----
+  const EW_READS = { early: "good", done: "good", late: "flat", corrective: "flat", turn: "flat", bearish: "bad", broken: "bad" };
+
+  function elliottFor(unit, d) {
+    const e = d.elliott && d.elliott[unit === "usd" || unit === "rate" ? unit : "egp"];
+    if (!e) return null;
+    const k = unit === "usd" || unit === "rate" ? 1 : inUnit({ gram24: 1 }, unit, d);
+    const x = (v) => (v == null ? null : v * k);
+    // the server's text quotes the 24k gram: restate its two prices in the unit shown (formatted as app/elliott._fmt does)
+    const pyFmt = (v) => v.toLocaleString("en-US", Math.abs(v) < 1000 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 });
+    const digits = unit === "rate" ? 2 : 0;
+    const text = k === 1 ? e.text : e.text.split(pyFmt(e.target)).join(money(x(e.target), digits)).split(pyFmt(e.invalidation)).join(money(x(e.invalidation), digits));
+    return { ...e, text, target: x(e.target), invalidation: x(e.invalidation), labels: e.labels.map((l) => ({ ...l, price: x(l.price) })) };
+  }
+
+  const ewName = (l) => (l.label === "new" ? "1" : l.label) + (l.open ? "?" : "");
+
+  function renderElliott() {
+    const d = state.data, e = elliottFor(state.unit, d), box = $("elliott");
+    const digits = state.unit === "rate" ? 2 : 0, unit = state.unit === "usd" ? "USD" : "EGP";
+    if (!e) {
+      box.innerHTML = '<ul><li class="flat">No clear Elliott wave count in the last year for the unit shown.</li></ul>';
+      return;
+    }
+    const price = (v) => `${money(v, digits)} ${unit}`;
+    const cell = (k, v, note) => `<div><span class="muted small">${k}</span><b>${v}</b><span class="muted small">${note}</span></div>`;
+    const path = e.labels.map((l) => `${ewName(l)} ${money(l.price, digits)}`).join(" → ");
+    box.innerHTML = `<ul><li class="${EW_READS[e.read] || "flat"}"><b>${e.direction === "up" ? "Rising" : "Falling"} count, now in ${e.wave === "new" ? "a new move" : `wave ${e.wave}`}.</b>
+        ${escapeHtml(e.text)}</li></ul>
+      <div class="fib-grid">${cell("Usual target", price(e.target), "where this wave often ends")}
+        ${cell("Count wrong past", price(e.invalidation), "a rule of the count breaks there")}
+        ${cell("Fit", `${Math.round(e.score * 100)}%`, "how closely the swings match the usual proportions")}</div>
+      <p class="muted small">Swings: ${escapeHtml(path)}. Elliott counts are subjective and get redrawn as new swings form; read this as where the move
+        probably stands, beside the Fibonacci levels, not as a forecast.</p>`;
+  }
+
+  function drawElliott() {
+    for (const l of state.ewLines) state.line.removePriceLine(l);
+    state.ewLines = [];
+    const e = elliottFor(state.unit, state.data), color = css("--elliott");
+    if (!e) { state.line.setMarkers([]); return; }
+    state.line.setMarkers(e.labels.map((l) => ({ time: l.time, position: l.kind === "H" ? "aboveBar" : "belowBar",
+      shape: "circle", color, size: 0.1, text: ewName(l) })));
+    const { Dashed } = LightweightCharts.LineStyle;
+    state.ewLines = [state.line.createPriceLine({ price: e.target, color, lineWidth: 1, lineStyle: Dashed, axisLabelVisible: true, title: "EW target" }),
+      state.line.createPriceLine({ price: e.invalidation, color, lineWidth: 1, lineStyle: Dashed, axisLabelVisible: true, title: "EW wrong past" })];
+  }
+
   // ---- chart ----
   function chartColors() {
     return { layout: { background: { color: "transparent" }, textColor: css("--muted"), fontFamily: "Inter, sans-serif" },
@@ -182,6 +230,8 @@
     state.line.setData(d.series.map((p) => ({ time: p.time, value: inUnit(p, state.unit, d) })));
     drawFibLines();
     renderFib();
+    drawElliott();
+    renderElliott();
     const last = new Date(d.series[d.series.length - 1].time);
     if (state.months) {
       const from = new Date(last);

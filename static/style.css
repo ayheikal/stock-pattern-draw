@@ -20,6 +20,7 @@
   --sma50: #3b82f6;
   --usd: #0891b2;
   --fib: #db2777;
+  --elliott: #ea580c;
   --bb: #8b5cf6;
   --rsi: #7c3aed;
   --macd: #2563eb;
@@ -55,6 +56,7 @@
     --sma: #f9a8d4;
     --usd: #22d3ee;
     --fib: #f472b6;
+    --elliott: #fb923c;
     --topbar: rgba(19, 23, 34, 0.78);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.6);
@@ -81,6 +83,7 @@
   --sma: #f9a8d4;
   --usd: #22d3ee;
   --fib: #f472b6;
+  --elliott: #fb923c;
   --topbar: rgba(19, 23, 34, 0.78);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px -8px rgba(0, 0, 0, 0.6);
@@ -224,6 +227,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .dot.trend { background: var(--accent); }
 .dot.lvl { background: var(--support); }
 .dot.fib { background: var(--fib); }
+.dot.elliott { background: var(--elliott); }
 .dot.gap { background: var(--resistance); }
 
 .layout {
